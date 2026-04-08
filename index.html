@@ -1,613 +1,276 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Claude Usage</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+<meta charset="UTF-8"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{overflow:hidden;background:#1a1a1a;color:#e8e8e8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;user-select:none;border-radius:14px;border:1px solid #2e2e2e;}
+.wb{border-radius:50%;border:none;cursor:pointer;color:transparent;font-size:0;}
+.wb.mn{background:#f5a623;}
+.wb.cl{background:#ff5f57;}
+.toggle-btn{font-size:10px;color:#666;padding:2px 8px;border:1px solid #333;border-radius:3px;background:#222;cursor:pointer;font-family:inherit;}
+.toggle-btn:hover{color:#aaa;}
+.rbtn{border:1px solid #2e2e2e;border-radius:5px;background:#1e1e1e;color:#888;cursor:pointer;font-family:inherit;}
+.rbtn:hover{background:#2a2a2a;color:#bbb;}
+.rbtn:disabled{opacity:.4;cursor:not-allowed;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.spinner{display:inline-block;border:2px solid #2e2e2e;border-top-color:#d97706;border-radius:50%;animation:spin .7s linear infinite;}
+.state-box{text-align:center;color:#666;line-height:1.7;width:100%;}
+.login-btn{display:inline-block;margin-top:10px;padding:6px 16px;background:#d97706;color:#fff;border:none;border-radius:6px;cursor:pointer;font-family:inherit;}
 
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      background: #1a1a2e;
-      color: #e2e8f0;
-      user-select: none;
-      overflow: hidden;
-    }
+/* ── 일반 모드 580px ── */
+#uiFull{width:580px;display:block;}
+.tb-full{display:flex;justify-content:space-between;align-items:center;padding:10px 16px 9px;border-bottom:1px solid #2a2a2a;cursor:move;}
+.body-full{display:flex;padding:16px 14px;gap:6px;}
+.card-full{flex:1;display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px 8px 12px;background:#222;border-radius:10px;border:1px solid #282828;}
+.clabel{font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:#666;font-weight:600;}
+.ring-wrap-full{position:relative;width:76px;height:76px;}
+.ring-wrap-full svg{width:76px;height:76px;display:block;}
+.ring-center{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;}
+.rpct-full{font-size:16px;font-weight:700;color:#f0f0f0;}
+.rtxt{font-size:9px;color:#888;text-align:center;line-height:1.6;}
+.rval{font-size:10px;color:#aaa;font-weight:500;}
+.divv{width:1px;background:#2a2a2a;align-self:stretch;flex-shrink:0;}
+.footer-full{display:flex;justify-content:space-between;align-items:center;padding:8px 16px 12px;border-top:1px solid #2a2a2a;}
 
-    /* 타이틀바 */
-    #titlebar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 6px 12px;
-      background: #16213e;
-      cursor: move;
-      border-bottom: 1px solid #2d3561;
-    }
-
-    #titlebar .title {
-      font-size: 12px;
-      font-weight: 600;
-      color: #94a3b8;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    #titlebar .title span { color: #7c3aed; }
-
-    #titlebar .controls {
-      display: flex;
-      gap: 6px;
-      align-items: center;
-    }
-
-    #titlebar button {
-      background: none;
-      border: none;
-      color: #64748b;
-      cursor: pointer;
-      padding: 2px 6px;
-      border-radius: 4px;
-      font-size: 12px;
-      transition: color 0.2s, background 0.2s;
-    }
-
-    #titlebar button:hover { color: #e2e8f0; background: #2d3561; }
-    #titlebar .btn-close:hover { color: #ef4444; }
-
-    /* 일반 모드 */
-    #uiFull {
-      width: 580px;
-      padding: 16px;
-    }
-
-    .plan-badge {
-      display: inline-block;
-      font-size: 11px;
-      padding: 2px 8px;
-      background: #2d1d6e;
-      color: #a78bfa;
-      border-radius: 10px;
-      margin-bottom: 12px;
-    }
-
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 10px;
-    }
-
-    .card {
-      background: #16213e;
-      border-radius: 10px;
-      padding: 12px;
-      border: 1px solid #2d3561;
-    }
-
-    .card-title {
-      font-size: 11px;
-      color: #64748b;
-      margin-bottom: 8px;
-    }
-
-    .gauge-row {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-
-    .ring-wrap {
-      position: relative;
-      width: 52px;
-      height: 52px;
-      flex-shrink: 0;
-    }
-
-    .ring-wrap svg { transform: rotate(-90deg); }
-
-    .ring-pct {
-      position: absolute;
-      inset: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 12px;
-      font-weight: 700;
-    }
-
-    .card-info { flex: 1; }
-
-    .card-pct-label {
-      font-size: 20px;
-      font-weight: 700;
-      line-height: 1;
-    }
-
-    .card-reset {
-      font-size: 10px;
-      color: #64748b;
-      margin-top: 4px;
-    }
-
-    /* 추가 사용량 카드 */
-    .card-addon .addon-amount {
-      font-size: 20px;
-      font-weight: 700;
-      color: #f59e0b;
-    }
-
-    .card-addon .addon-label {
-      font-size: 10px;
-      color: #64748b;
-      margin-top: 4px;
-    }
-
-    /* 잔액 카드 */
-    .card-balance .balance-amount {
-      font-size: 20px;
-      font-weight: 700;
-      color: #22c55e;
-    }
-
-    .card-balance .balance-label {
-      font-size: 10px;
-      color: #64748b;
-      margin-top: 4px;
-    }
-
-    /* 하단 상태바 */
-    #statusBar {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 6px 16px;
-      font-size: 10px;
-      color: #475569;
-    }
-
-    #statusBar button {
-      background: none;
-      border: none;
-      color: #475569;
-      cursor: pointer;
-      font-size: 10px;
-      padding: 2px 6px;
-      border-radius: 4px;
-    }
-
-    #statusBar button:hover { color: #94a3b8; background: #2d3561; }
-
-    /* 미니 모드 */
-    #uiMini {
-      display: none;
-      width: 160px;
-      padding: 10px 12px;
-    }
-
-    .mini-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 6px;
-    }
-
-    .mini-row:last-of-type { margin-bottom: 0; }
-
-    .mini-label {
-      font-size: 10px;
-      color: #64748b;
-      width: 44px;
-      flex-shrink: 0;
-    }
-
-    .mini-bar-wrap {
-      flex: 1;
-      height: 6px;
-      background: #2d3561;
-      border-radius: 3px;
-      overflow: hidden;
-    }
-
-    .mini-bar {
-      height: 100%;
-      border-radius: 3px;
-      transition: width 0.4s;
-    }
-
-    .mini-pct {
-      font-size: 10px;
-      font-weight: 600;
-      width: 28px;
-      text-align: right;
-    }
-
-    /* 로딩 / 에러 / 로그인 */
-    #overlay {
-      display: none;
-      position: absolute;
-      inset: 30px 0 0 0;
-      align-items: center;
-      justify-content: center;
-      flex-direction: column;
-      gap: 10px;
-      background: #1a1a2e;
-      font-size: 13px;
-      color: #64748b;
-    }
-
-    #overlay.show { display: flex; }
-
-    #overlay button {
-      background: #2d1d6e;
-      color: #a78bfa;
-      border: none;
-      padding: 6px 16px;
-      border-radius: 6px;
-      cursor: pointer;
-      font-size: 12px;
-    }
-
-    #overlay button:hover { background: #3d2d8e; }
-
-    .spinner {
-      width: 24px;
-      height: 24px;
-      border: 3px solid #2d3561;
-      border-top-color: #7c3aed;
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-    }
-
-    @keyframes spin { to { transform: rotate(360deg); } }
-  </style>
+/* ── 미니 모드 160px ── */
+#uiMini{width:160px;display:none;}
+.tb-mini{display:flex;justify-content:space-between;align-items:center;padding:7px 10px 6px;border-bottom:1px solid #2a2a2a;cursor:move;}
+.grid-mini{display:grid;grid-template-columns:1fr 1px 1fr;padding:10px 8px 8px;}
+.vline{background:#2a2a2a;align-self:stretch;margin:4px 0;}
+.ring-item-mini{display:flex;flex-direction:column;align-items:center;gap:5px;padding:4px 6px;}
+.ring-wrap-mini{position:relative;width:52px;height:52px;}
+.ring-wrap-mini svg{width:52px;height:52px;display:block;}
+.rpct-mini{font-size:12px;font-weight:700;color:#f0f0f0;}
+.mlabel{font-size:9px;color:#888;text-align:center;line-height:1.3;}
+.mreset{font-size:8px;color:#666;text-align:center;line-height:1.5;}
+.footer-mini{display:flex;justify-content:space-between;align-items:center;padding:5px 10px 8px;border-top:1px solid #2a2a2a;}
+</style>
 </head>
 <body>
 
-<!-- 타이틀바 -->
-<div id="titlebar">
-  <div class="title">
-    <span>◆</span> Claude Usage
-  </div>
-  <div class="controls">
-    <button id="btnMini" title="미니 모드">⊟</button>
-    <button id="btnRefresh" title="새로고침">↻</button>
-    <button id="btnMin" title="최소화">─</button>
-    <button class="btn-close" id="btnClose" title="닫기">✕</button>
-  </div>
-</div>
-
-<!-- 일반 모드 UI -->
+<!-- ── 일반 모드 ── -->
 <div id="uiFull">
-  <div id="planBadge" class="plan-badge">Max</div>
-  <div class="grid">
-    <div class="card" id="cardSession">
-      <div class="card-title">현재 세션</div>
-      <div class="gauge-row">
-        <div class="ring-wrap">
-          <svg width="52" height="52" viewBox="0 0 52 52">
-            <circle cx="26" cy="26" r="22" fill="none" stroke="#2d3561" stroke-width="5"/>
-            <circle id="ringSession" cx="26" cy="26" r="22" fill="none" stroke="#22c55e"
-              stroke-width="5" stroke-linecap="round"
-              stroke-dasharray="138.23" stroke-dashoffset="138.23"/>
-          </svg>
-          <div class="ring-pct" id="pctSession">0%</div>
-        </div>
-        <div class="card-info">
-          <div class="card-pct-label" id="lblSession">0%</div>
-          <div class="card-reset" id="resetSession">—</div>
-        </div>
+  <div class="tb-full" id="titlebar">
+    <div style="display:flex;align-items:center;gap:8px;">
+      <div style="width:8px;height:8px;border-radius:50%;background:#d97706;flex-shrink:0;"></div>
+      <span style="font-size:12px;font-weight:600;color:#ccc;letter-spacing:.02em;">Claude 사용량</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <span style="font-size:10px;color:#555;" id="planLabel"></span>
+      <button class="toggle-btn" id="btnToggle">축소 ▾</button>
+      <div style="display:flex;gap:5px;">
+        <button class="wb mn" style="width:12px;height:12px;" id="btnMin">–</button>
+        <button class="wb cl" style="width:12px;height:12px;" id="btnClose">✕</button>
       </div>
     </div>
-
-    <div class="card" id="cardWeekly">
-      <div class="card-title">주간 (전체)</div>
-      <div class="gauge-row">
-        <div class="ring-wrap">
-          <svg width="52" height="52" viewBox="0 0 52 52">
-            <circle cx="26" cy="26" r="22" fill="none" stroke="#2d3561" stroke-width="5"/>
-            <circle id="ringWeekly" cx="26" cy="26" r="22" fill="none" stroke="#22c55e"
-              stroke-width="5" stroke-linecap="round"
-              stroke-dasharray="138.23" stroke-dashoffset="138.23"/>
-          </svg>
-          <div class="ring-pct" id="pctWeekly">0%</div>
-        </div>
-        <div class="card-info">
-          <div class="card-pct-label" id="lblWeekly">0%</div>
-          <div class="card-reset" id="resetWeekly">—</div>
-        </div>
+  </div>
+  <div id="fullContent">
+    <div class="body-full">
+      <div class="state-box" style="padding:28px 14px;font-size:12px;">
+        <div class="spinner" style="width:16px;height:16px;margin-bottom:8px;"></div><br>불러오는 중...
       </div>
     </div>
-
-    <div class="card" id="cardSonnet">
-      <div class="card-title">주간 (Sonnet)</div>
-      <div class="gauge-row">
-        <div class="ring-wrap">
-          <svg width="52" height="52" viewBox="0 0 52 52">
-            <circle cx="26" cy="26" r="22" fill="none" stroke="#2d3561" stroke-width="5"/>
-            <circle id="ringSonnet" cx="26" cy="26" r="22" fill="none" stroke="#22c55e"
-              stroke-width="5" stroke-linecap="round"
-              stroke-dasharray="138.23" stroke-dashoffset="138.23"/>
-          </svg>
-          <div class="ring-pct" id="pctSonnet">0%</div>
-        </div>
-        <div class="card-info">
-          <div class="card-pct-label" id="lblSonnet">0%</div>
-          <div class="card-reset" id="resetSonnet">—</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="card card-addon" id="cardAddon">
-      <div class="card-title">추가 사용량</div>
-      <div class="addon-amount" id="addonAmount">—</div>
-      <div class="addon-label" id="addonReset">—</div>
-    </div>
+  </div>
+  <div class="footer-full">
+    <span style="font-size:10px;color:#444;" id="updFull">—</span>
+    <button class="rbtn" style="font-size:11px;padding:4px 12px;" id="btnRefreshFull">새로고침</button>
   </div>
 </div>
 
-<!-- 미니 모드 UI -->
+<!-- ── 미니 모드 ── -->
 <div id="uiMini">
-  <div class="mini-row">
-    <div class="mini-label">세션</div>
-    <div class="mini-bar-wrap"><div class="mini-bar" id="miniBarSession" style="width:0%;background:#22c55e"></div></div>
-    <div class="mini-pct" id="miniPctSession">0%</div>
+  <div class="tb-mini" id="titlebarMini">
+    <div style="display:flex;align-items:center;gap:5px;">
+      <div style="width:6px;height:6px;border-radius:50%;background:#d97706;flex-shrink:0;"></div>
+      <span style="font-size:10px;font-weight:600;color:#aaa;">Claude</span>
+    </div>
+    <button class="toggle-btn" id="btnExpand">확대 ▴</button>
   </div>
-  <div class="mini-row">
-    <div class="mini-label">주간</div>
-    <div class="mini-bar-wrap"><div class="mini-bar" id="miniBarWeekly" style="width:0%;background:#22c55e"></div></div>
-    <div class="mini-pct" id="miniPctWeekly">0%</div>
+  <div id="miniContent">
+    <div class="grid-mini">
+      <div class="state-box" style="padding:16px 8px;font-size:10px;grid-column:1/-1;">
+        <div class="spinner" style="width:12px;height:12px;margin-bottom:6px;"></div>
+      </div>
+    </div>
   </div>
-  <div class="mini-row">
-    <div class="mini-label">Sonnet</div>
-    <div class="mini-bar-wrap"><div class="mini-bar" id="miniBarSonnet" style="width:0%;background:#22c55e"></div></div>
-    <div class="mini-pct" id="miniPctSonnet">0%</div>
+  <div class="footer-mini">
+    <span style="font-size:9px;color:#444;" id="updMini">—</span>
+    <button class="rbtn" style="font-size:10px;padding:3px 8px;" id="btnRefreshMini">↺</button>
   </div>
-  <div style="font-size:10px;color:#475569;margin-top:8px;text-align:right" id="miniUpdated">—</div>
-</div>
-
-<!-- 상태바 -->
-<div id="statusBar">
-  <span id="lastUpdated">—</span>
-  <button id="btnLogin">로그인</button>
-</div>
-
-<!-- 오버레이 (로딩/에러/로그인 안내) -->
-<div id="overlay">
-  <div class="spinner" id="overlaySpinner"></div>
-  <div id="overlayMsg">데이터 로딩 중...</div>
-  <button id="overlayBtn" style="display:none"></button>
 </div>
 
 <script>
-const { ipcRenderer } = require('electron');
+const {ipcRenderer} = require('electron');
 
-// ── 상태 ──────────────────────────────────────────────
-let isMini = false;
-let cachedData = null;
-let cacheTime = 0;
-const CACHE_TTL = 5 * 60 * 1000;   // 5분
-const AUTO_REFRESH = 10 * 60 * 1000; // 10분
-let snapX = 'right'; // 현재 고정된 X 모서리: 'left' | 'right'
-let snapY = 'top';   // 현재 고정된 Y 모서리: 'top' | 'bottom'
+let isMini = false, cache = null;
+let snapX = 'right', snapY = 'top'; // 현재 snap된 모서리
 
-// ── 드래그 이동 ──────────────────────────────────────
-let dragging = false, dragX = 0, dragY = 0;
-document.getElementById('titlebar').addEventListener('mousedown', e => {
-  if (e.target.tagName === 'BUTTON') return;
-  dragging = true;
-  dragX = e.screenX;
-  dragY = e.screenY;
-});
-window.addEventListener('mousemove', e => {
-  if (!dragging) return;
-  ipcRenderer.send('move-window', { x: e.screenX - dragX, y: e.screenY - dragY });
-  dragX = e.screenX;
-  dragY = e.screenY;
-});
-window.addEventListener('mouseup', async () => {
-  if (!dragging) return;
-  dragging = false;
-  // 드래그 끝나면 가장 가까운 모서리로 snap
-  const corner = await ipcRenderer.invoke('snap-to-edge');
-  snapX = corner.snapX;
-  snapY = corner.snapY;
-});
+function initDrag(el) {
+  let drag = false, sx, sy;
+  el.addEventListener('mousedown', e => { drag = true; sx = e.screenX; sy = e.screenY; });
+  document.addEventListener('mousemove', e => {
+    if (!drag) return;
+    ipcRenderer.send('move-window', { dx: e.screenX - sx, dy: e.screenY - sy });
+    sx = e.screenX; sy = e.screenY;
+  });
+  document.addEventListener('mouseup', async () => {
+    if (!drag) return;
+    drag = false;
+    const corner = await ipcRenderer.invoke('snap-to-edge');
+    snapX = corner.snapX;
+    snapY = corner.snapY;
+  });
+}
+initDrag(document.getElementById('titlebar'));
+initDrag(document.getElementById('titlebarMini'));
 
-// ── 타이틀바 버튼 ────────────────────────────────────
 document.getElementById('btnClose').addEventListener('click', () => ipcRenderer.send('close-window'));
 document.getElementById('btnMin').addEventListener('click', () => ipcRenderer.send('minimize-window'));
-document.getElementById('btnRefresh').addEventListener('click', () => fetchUsage(true));
-document.getElementById('btnLogin').addEventListener('click', () => ipcRenderer.send('open-login'));
+ipcRenderer.on('login-done', () => loadData(true));
 
-document.getElementById('btnMini').addEventListener('click', () => {
-  isMini = !isMini;
-  switchMode(isMini);
-});
-
-// ── 로그인 완료 알림 ─────────────────────────────────
-ipcRenderer.on('login-done', () => fetchUsage(true));
-
-// ── 모드 전환 ─────────────────────────────────────────
 function switchMode(mini) {
-  document.getElementById('uiFull').style.display = mini ? 'none' : 'block';
-  document.getElementById('uiMini').style.display  = mini ? 'block' : 'none';
-  document.getElementById('statusBar').style.display = mini ? 'none' : 'flex';
-  // 크기 변경 후 같은 모서리에 재배치
-  ipcRenderer.send('set-size', mini
-    ? { w: 160, h: 190, snapX, snapY }
-    : { w: 580, h: 280, snapX, snapY }
-  );
-  document.getElementById('btnMini').textContent = mini ? '⊞' : '⊟';
-  if (cachedData) renderUI(cachedData);
-}
-
-// ── 원형 게이지 색상 ──────────────────────────────────
-function ringColor(pct) {
-  if (pct >= 80) return '#ef4444';
-  if (pct >= 50) return '#f59e0b';
-  return '#22c55e';
-}
-
-// ── 원형 게이지 업데이트 ─────────────────────────────
-function updateRing(id, pct) {
-  const circumference = 138.23;
-  const el = document.getElementById(id);
-  const offset = circumference - (pct / 100) * circumference;
-  el.style.strokeDashoffset = offset;
-  el.style.stroke = ringColor(pct);
-}
-
-// ── UI 렌더링 ─────────────────────────────────────────
-function renderUI(data) {
-  const { session, weekly, sonnet, addon, balance, plan, updatedAt } = data;
-
-  // 플랜
-  if (plan) document.getElementById('planBadge').textContent = plan;
-
-  // 일반 모드
-  updateRing('ringSession', session.pct);
-  document.getElementById('pctSession').textContent = session.pct + '%';
-  document.getElementById('lblSession').textContent = session.pct + '%';
-  document.getElementById('resetSession').textContent = session.reset || '—';
-
-  updateRing('ringWeekly', weekly.pct);
-  document.getElementById('pctWeekly').textContent = weekly.pct + '%';
-  document.getElementById('lblWeekly').textContent = weekly.pct + '%';
-  document.getElementById('resetWeekly').textContent = weekly.reset || '—';
-
-  updateRing('ringSonnet', sonnet.pct);
-  document.getElementById('pctSonnet').textContent = sonnet.pct + '%';
-  document.getElementById('lblSonnet').textContent = sonnet.pct + '%';
-  document.getElementById('resetSonnet').textContent = sonnet.reset || '—';
-
-  document.getElementById('addonAmount').textContent = addon.amount || '—';
-  document.getElementById('addonReset').textContent = addon.reset || '—';
-
-  const timeStr = new Date(updatedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
-  document.getElementById('lastUpdated').textContent = '업데이트: ' + timeStr;
-
-  // 미니 모드
-  const bars = [
-    { bar: 'miniBarSession', pct: 'miniPctSession', val: session.pct },
-    { bar: 'miniBarWeekly',  pct: 'miniPctWeekly',  val: weekly.pct },
-    { bar: 'miniBarSonnet',  pct: 'miniPctSonnet',  val: sonnet.pct },
-  ];
-  bars.forEach(({ bar, pct, val }) => {
-    document.getElementById(bar).style.width = val + '%';
-    document.getElementById(bar).style.background = ringColor(val);
-    document.getElementById(pct).textContent = val + '%';
-  });
-  document.getElementById('miniUpdated').textContent = timeStr;
-}
-
-// ── HTML 파싱 ─────────────────────────────────────────
-function parseUsageHTML(html) {
-  const doc = new DOMParser().parseFromString(html, 'text/html');
-
-  const bars = doc.querySelectorAll('[role="progressbar"]');
-  const getPct = (i) => {
-    const el = bars[i];
-    if (!el) return 0;
-    const v = parseInt(el.getAttribute('aria-valuenow') || el.getAttribute('aria-value') || '0', 10);
-    return isNaN(v) ? 0 : Math.min(100, v);
-  };
-
-  // 재설정 시간: "재설정" 포함 p 태그
-  const allP = Array.from(doc.querySelectorAll('p'));
-  const resets = allP.filter(p => p.textContent.includes('재설정') || p.textContent.toLowerCase().includes('reset'));
-
-  const getResetText = (i) => resets[i] ? resets[i].textContent.trim() : '—';
-
-  // 추가 사용량 금액 (US$X.XX 패턴)
-  const addonP = allP.find(p => /US\$[\d.]+/.test(p.textContent));
-  const addonMatch = addonP ? addonP.textContent.match(/US\$[\d.]+/) : null;
-  const addonAmount = addonMatch ? addonMatch[0] : '—';
-
-  // 현재 잔액
-  const balanceDiv = Array.from(doc.querySelectorAll('div')).find(d => {
-    const p2 = d.querySelector(':scope > p:nth-child(2)');
-    return p2 && p2.textContent.includes('현재 잔액');
-  });
-  const balance = balanceDiv ? (balanceDiv.querySelector(':scope > p')?.textContent.trim() || '—') : '—';
-
-  // 플랜명
-  const planEl = doc.querySelector('span.text-text-300');
-  const plan = planEl ? planEl.textContent.trim() : 'Max';
-
-  return {
-    session: { pct: getPct(0), reset: getResetText(0) },
-    weekly:  { pct: getPct(1), reset: getResetText(1) },
-    sonnet:  { pct: getPct(2), reset: getResetText(2) },
-    addon:   { pct: getPct(3), reset: getResetText(3), amount: addonAmount },
-    balance,
-    plan,
-    updatedAt: Date.now(),
-  };
-}
-
-// ── 오버레이 ──────────────────────────────────────────
-function showOverlay(msg, { spinner = false, btnText = null, btnAction = null } = {}) {
-  const overlay = document.getElementById('overlay');
-  const sp = document.getElementById('overlaySpinner');
-  const msgEl = document.getElementById('overlayMsg');
-  const btn = document.getElementById('overlayBtn');
-
-  sp.style.display = spinner ? 'block' : 'none';
-  msgEl.textContent = msg;
-
-  if (btnText) {
-    btn.style.display = 'inline-block';
-    btn.textContent = btnText;
-    btn.onclick = btnAction;
+  isMini = mini;
+  const full = document.getElementById('uiFull');
+  const min  = document.getElementById('uiMini');
+  if (mini) {
+    full.style.display = 'none';
+    min.style.display  = 'block';
+    ipcRenderer.send('set-size', { w: 160, h: 190, snapX, snapY });
   } else {
-    btn.style.display = 'none';
+    min.style.display  = 'none';
+    full.style.display = 'block';
+    ipcRenderer.send('set-size', { w: 580, h: 280, snapX, snapY });
   }
-
-  overlay.classList.add('show');
+  if (cache) mini ? renderMini(cache) : renderFull(cache);
 }
 
-function hideOverlay() {
-  document.getElementById('overlay').classList.remove('show');
+document.getElementById('btnToggle').addEventListener('click', () => switchMode(true));
+document.getElementById('btnExpand').addEventListener('click', () => switchMode(false));
+
+function ringColor(p) { return p >= 80 ? '#ef4444' : p >= 50 ? '#f59e0b' : '#22c55e'; }
+
+function makeRingFull(p) {
+  const r = 30, c = 38, ci = 2 * Math.PI * r, off = ci * (1 - p / 100), col = ringColor(p);
+  return `<svg viewBox="0 0 76 76"><circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="#2a2a2a" stroke-width="7"/><circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="${col}" stroke-width="7" stroke-dasharray="${ci.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}" stroke-linecap="round" transform="rotate(-90 ${c} ${c})"/></svg>`;
 }
 
-// ── fetch-usage ───────────────────────────────────────
-async function fetchUsage(force = false) {
-  const now = Date.now();
-  if (!force && cachedData && (now - cacheTime) < CACHE_TTL) {
-    renderUI(cachedData);
+function makeRingMini(p) {
+  const r = 21, c = 26, ci = 2 * Math.PI * r, off = ci * (1 - p / 100), col = ringColor(p);
+  return `<svg viewBox="0 0 52 52"><circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="#2a2a2a" stroke-width="5"/><circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="${col}" stroke-width="5" stroke-dasharray="${ci.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}" stroke-linecap="round" transform="rotate(-90 ${c} ${c})"/></svg>`;
+}
+
+function renderFull(data) {
+  if (data.plan) document.getElementById('planLabel').textContent = data.plan;
+  const s  = data.session       || { pct: 0, reset: '' };
+  const wa = data.weekly_all    || { pct: 0, reset: '' };
+  const ws = data.weekly_sonnet || { pct: 0, reset: '' };
+  const ex = data.extra         || { pct: 0, reset: '' };
+  const card = (lbl, pct, l1, l2) =>
+    `<div class="card-full">
+      <div class="clabel">${lbl}</div>
+      <div class="ring-wrap-full">${makeRingFull(pct)}<div class="ring-center"><span class="rpct-full">${pct}%</span></div></div>
+      <div class="rtxt"><div class="rval">${l1}</div>${l2 ? `<div>${l2}</div>` : ''}</div>
+    </div>`;
+  document.getElementById('fullContent').innerHTML =
+    `<div class="body-full">
+      ${card('현재 세션',   s.pct,  s.reset,  '')}
+      <div class="divv"></div>
+      ${card('주간 · 전체', wa.pct, wa.reset, '')}
+      <div class="divv"></div>
+      ${card('주간 · Sonnet', ws.pct, ws.reset, '')}
+      <div class="divv"></div>
+      ${card('추가 사용량', ex.pct, data.extra_balance ? `잔액 ${data.extra_balance}` : (data.extra_used || ''), ex.reset)}
+    </div>`;
+  setUpdated('updFull', data.fetched_at);
+}
+
+function renderMini(data) {
+  const s  = data.session    || { pct: 0, reset: '' };
+  const wa = data.weekly_all || { pct: 0, reset: '' };
+  document.getElementById('miniContent').innerHTML =
+    `<div class="grid-mini">
+      <div class="ring-item-mini">
+        <div class="ring-wrap-mini">${makeRingMini(s.pct)}<div class="ring-center"><span class="rpct-mini">${s.pct}%</span></div></div>
+        <div class="mlabel">현재 세션</div><div class="mreset">${s.reset}</div>
+      </div>
+      <div class="vline"></div>
+      <div class="ring-item-mini">
+        <div class="ring-wrap-mini">${makeRingMini(wa.pct)}<div class="ring-center"><span class="rpct-mini">${wa.pct}%</span></div></div>
+        <div class="mlabel">주간 · 전체</div><div class="mreset">${wa.reset}</div>
+      </div>
+    </div>`;
+  setUpdated('updMini', data.fetched_at);
+}
+
+function renderError(data) {
+  const isAuth = data?.error === 'auth' || data?.error === 'no_cookie';
+  document.getElementById('fullContent').innerHTML =
+    `<div class="body-full"><div class="state-box" style="padding:28px 14px;font-size:12px;">
+      ${isAuth ? '🔐 로그인이 필요합니다' : '⚠️ 데이터를 불러오지 못했습니다'}
+      <div style="color:#ef4444;font-size:11px;margin-top:4px;">${data?.message || ''}</div>
+      ${isAuth ? '<button class="login-btn" onclick="openLogin()">로그인하기</button>' : ''}
+    </div></div>`;
+  document.getElementById('miniContent').innerHTML =
+    `<div class="grid-mini"><div class="state-box" style="padding:16px 8px;font-size:10px;grid-column:1/-1;color:#666;">연결 필요</div></div>`;
+}
+
+function setUpdated(id, ts) {
+  if (!ts) return;
+  const d = Math.round((Date.now() - ts) / 1000);
+  document.getElementById(id).textContent = d < 60 ? `${d}초 전` : `${Math.round(d / 60)}분 전`;
+}
+
+function setLoading(on) {
+  const bf = document.getElementById('btnRefreshFull');
+  const bm = document.getElementById('btnRefreshMini');
+  bf.disabled = on; bf.textContent = on ? '로딩 중...' : '새로고침';
+  bm.disabled = on; bm.textContent = on ? '…' : '↺';
+}
+
+function parseHTML(html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const result = {};
+  const bars   = doc.querySelectorAll('[role="progressbar"]');
+  const resets = Array.from(doc.querySelectorAll('p')).filter(
+    p => p.textContent.includes('재설정') || p.textContent.includes('reset')
+  );
+  if (bars[0]) result.session       = { pct: parseInt(bars[0].getAttribute('aria-valuenow')) || 0, reset: resets[0]?.textContent.trim() || '' };
+  if (bars[1]) result.weekly_all    = { pct: parseInt(bars[1].getAttribute('aria-valuenow')) || 0, reset: resets[1]?.textContent.trim() || '' };
+  if (bars[2]) result.weekly_sonnet = { pct: parseInt(bars[2].getAttribute('aria-valuenow')) || 0, reset: resets[2]?.textContent.trim() || '' };
+  if (bars[3]) result.extra         = { pct: parseInt(bars[3].getAttribute('aria-valuenow')) || 0, reset: resets[3]?.textContent.trim() || '' };
+  const allP  = Array.from(doc.querySelectorAll('p'));
+  const usedP = allP.find(p => p.textContent.match(/US\$[\d.]+\s*사용/));
+  if (usedP) result.extra_used = usedP.textContent.trim();
+  for (const div of doc.querySelectorAll('div')) {
+    const ps = div.querySelectorAll(':scope > p');
+    if (ps.length >= 2 && ps[1]?.textContent.includes('현재 잔액')) { result.extra_balance = ps[0]?.textContent.trim(); break; }
+  }
+  const planEl = doc.querySelector('span.text-text-300');
+  if (planEl) result.plan = planEl.textContent.trim();
+  result.fetched_at = Date.now();
+  return result;
+}
+
+async function loadData(force = false) {
+  setLoading(true);
+  if (!force && cache && (Date.now() - cache.fetched_at) < 5 * 60 * 1000) {
+    isMini ? renderMini(cache) : renderFull(cache);
+    setLoading(false);
     return;
   }
-
-  showOverlay('데이터 로딩 중...', { spinner: true });
-
-  try {
-    const html = await ipcRenderer.invoke('fetch-usage');
-    const data = parseUsageHTML(html);
-    cachedData = data;
-    cacheTime = Date.now();
-    hideOverlay();
-    renderUI(data);
-  } catch (err) {
-    console.error('fetch-usage error:', err);
-    if (err.message && err.message.includes('login')) {
-      showOverlay('로그인이 필요합니다.', {
-        btnText: '로그인',
-        btnAction: () => ipcRenderer.send('open-login'),
-      });
-    } else {
-      showOverlay('데이터를 불러올 수 없습니다.', {
-        btnText: '다시 시도',
-        btnAction: () => fetchUsage(true),
-      });
-    }
-  }
+  const res = await ipcRenderer.invoke('fetch-usage');
+  setLoading(false);
+  if (res.html) { cache = parseHTML(res.html); isMini ? renderMini(cache) : renderFull(cache); }
+  else renderError(res);
 }
 
-// ── 초기화 ────────────────────────────────────────────
-fetchUsage();
-setInterval(() => fetchUsage(), AUTO_REFRESH);
+function openLogin() { ipcRenderer.send('open-login'); }
+
+document.getElementById('btnRefreshFull').addEventListener('click', () => loadData(true));
+document.getElementById('btnRefreshMini').addEventListener('click', () => loadData(true));
+loadData(true);
+setInterval(() => loadData(true), 10 * 60 * 1000);
 </script>
 </body>
 </html>
