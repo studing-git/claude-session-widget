@@ -389,6 +389,8 @@ let cachedData = null;
 let cacheTime = 0;
 const CACHE_TTL = 5 * 60 * 1000;   // 5분
 const AUTO_REFRESH = 10 * 60 * 1000; // 10분
+let snapX = 'right'; // 현재 고정된 X 모서리: 'left' | 'right'
+let snapY = 'top';   // 현재 고정된 Y 모서리: 'top' | 'bottom'
 
 // ── 드래그 이동 ──────────────────────────────────────
 let dragging = false, dragX = 0, dragY = 0;
@@ -404,7 +406,14 @@ window.addEventListener('mousemove', e => {
   dragX = e.screenX;
   dragY = e.screenY;
 });
-window.addEventListener('mouseup', () => { dragging = false; });
+window.addEventListener('mouseup', async () => {
+  if (!dragging) return;
+  dragging = false;
+  // 드래그 끝나면 가장 가까운 모서리로 snap
+  const corner = await ipcRenderer.invoke('snap-to-edge');
+  snapX = corner.snapX;
+  snapY = corner.snapY;
+});
 
 // ── 타이틀바 버튼 ────────────────────────────────────
 document.getElementById('btnClose').addEventListener('click', () => ipcRenderer.send('close-window'));
@@ -425,7 +434,11 @@ function switchMode(mini) {
   document.getElementById('uiFull').style.display = mini ? 'none' : 'block';
   document.getElementById('uiMini').style.display  = mini ? 'block' : 'none';
   document.getElementById('statusBar').style.display = mini ? 'none' : 'flex';
-  ipcRenderer.send('set-size', mini ? { w: 160, h: 190 } : { w: 580, h: 280 });
+  // 크기 변경 후 같은 모서리에 재배치
+  ipcRenderer.send('set-size', mini
+    ? { w: 160, h: 190, snapX, snapY }
+    : { w: 580, h: 280, snapX, snapY }
+  );
   document.getElementById('btnMini').textContent = mini ? '⊞' : '⊟';
   if (cachedData) renderUI(cachedData);
 }
