@@ -115,6 +115,8 @@ const {ipcRenderer} = require('electron');
 
 let isMini = false, cache = null, timerInterval = null;
 let snapX = 'right', snapY = 'top';
+let retryCount = 0, retryTimeout = null, countInterval = null;
+const RETRY_DELAYS = [30, 60, 120, 300];
 
 function initDrag(el) {
   let drag = false, sx, sy;
@@ -139,8 +141,8 @@ document.getElementById('btnClose').addEventListener('click', () => ipcRenderer.
 document.getElementById('btnMin').addEventListener('click', () => ipcRenderer.send('minimize-window'));
 document.getElementById('btnToggle').addEventListener('click', () => switchMode(true));
 document.getElementById('btnExpand').addEventListener('click', () => switchMode(false));
-document.getElementById('btnRefreshFull').addEventListener('click', () => loadData(true));
-document.getElementById('btnRefreshMini').addEventListener('click', () => loadData(true));
+document.getElementById('btnRefreshFull').addEventListener('click', () => { resetRetry(); loadData(true); });
+document.getElementById('btnRefreshMini').addEventListener('click', () => { resetRetry(); loadData(true); });
 ipcRenderer.on('login-done', () => loadData(true));
 
 function switchMode(mini) {
@@ -246,6 +248,40 @@ function fmtElapsed(ts) {
   return `${Math.round(d / 60)}분 전`;
 }
 
+function setFooter(txt) {
+  document.getElementById('updFull').textContent = txt;
+  document.getElementById('updMini').textContent = txt;
+}
+
+function stopTimer() {
+  if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+}
+
+function resetRetry() {
+  retryCount = 0;
+  if (retryTimeout) { clearTimeout(retryTimeout); retryTimeout = null; }
+  if (countInterval) { clearInterval(countInterval); countInterval = null; }
+}
+
+function scheduleRetry() {
+  if (retryTimeout) clearTimeout(retryTimeout);
+  if (countInterval) { clearInterval(countInterval); countInterval = null; }
+  stopTimer();
+  const delay = RETRY_DELAYS[Math.min(retryCount, RETRY_DELAYS.length - 1)];
+  retryCount++;
+  let remaining = delay;
+  setFooter(`${remaining}초 후 재시도`);
+  countInterval = setInterval(() => {
+    remaining--;
+    if (remaining > 0) setFooter(`${remaining}초 후 재시도`);
+    else { clearInterval(countInterval); countInterval = null; }
+  }, 1000);
+  retryTimeout = setTimeout(() => {
+    if (countInterval) { clearInterval(countInterval); countInterval = null; }
+    loadData(true);
+  }, delay * 1000);
+}
+
 function startTimer() {
   if (timerInterval) clearInterval(timerInterval);
   timerInterval = setInterval(() => {
@@ -299,16 +335,18 @@ async function loadData(force = false) {
   if (res.html) {
     cache = parseHTML(res.html);
     isMini ? renderMini(cache) : renderFull(cache);
+    resetRetry();
     startTimer();
   } else {
     renderError(res);
+    if (res.error !== 'auth') scheduleRetry();
   }
 }
 
 function openLogin() { ipcRenderer.send('open-login'); }
 
 loadData(true);
-setInterval(() => loadData(true), 10 * 60 * 1000);
+setInterval(() => loadData(false), 5 * 60 * 1000);
 </script>
 </body>
 </html>
