@@ -5,14 +5,22 @@
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
 html,body{overflow:hidden;background:#1a1a1a;color:#e8e8e8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;user-select:none;border-radius:14px;border:1px solid #2e2e2e;}
+
+/* 트래픽라이트 */
 .wb{border-radius:50%;border:none;cursor:pointer;color:transparent;font-size:0;}
 .wb.mn{background:#f5a623;}
 .wb.cl{background:#ff5f57;}
-.toggle-btn{font-size:10px;color:#666;padding:2px 8px;border:1px solid #333;border-radius:3px;background:#222;cursor:pointer;font-family:inherit;}
-.toggle-btn:hover{color:#aaa;}
-.rbtn{border:1px solid #2e2e2e;border-radius:5px;background:#1e1e1e;color:#888;cursor:pointer;font-family:inherit;}
-.rbtn:hover{background:#2a2a2a;color:#bbb;}
-.rbtn:disabled{opacity:.4;cursor:not-allowed;}
+
+/* 아이콘 버튼 */
+.iBtn{background:none;border:none;color:#555;cursor:pointer;font-size:14px;padding:2px 5px;border-radius:4px;transition:color .15s,background .15s;line-height:1;}
+.iBtn:hover{color:#ccc;background:#2a2a2a;}
+.iBtn:disabled{opacity:.35;cursor:not-allowed;}
+
+/* 툴팁 */
+.tip{position:relative;}
+.tip::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 7px);left:50%;transform:translateX(-50%);background:#2c2c2c;color:#ccc;font-size:10px;padding:4px 9px;border-radius:5px;white-space:nowrap;pointer-events:none;opacity:0;transition:opacity .15s;border:1px solid #3a3a3a;z-index:99;}
+.tip:hover::after{opacity:1;}
+
 @keyframes spin{to{transform:rotate(360deg);}}
 .spinner{display:inline-block;border:2px solid #2e2e2e;border-top-color:#d97706;border-radius:50%;animation:spin .7s linear infinite;}
 .state-box{text-align:center;color:#666;line-height:1.7;width:100%;}
@@ -22,16 +30,16 @@ html,body{overflow:hidden;background:#1a1a1a;color:#e8e8e8;font-family:-apple-sy
 #uiFull{width:580px;display:block;}
 .tb-full{display:flex;justify-content:space-between;align-items:center;padding:10px 16px 9px;border-bottom:1px solid #2a2a2a;cursor:move;}
 .body-full{display:flex;padding:16px 14px;gap:6px;}
-.card-full{flex:1;display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px 8px 12px;background:#222;border-radius:10px;border:1px solid #282828;}
+.card-full{flex:1;display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px 8px 12px;background:#252525;border-radius:10px;border:1px solid #2e2e2e;transition:border-color .3s,background .3s;}
 .clabel{font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:#666;font-weight:600;}
-.ring-wrap-full{position:relative;width:76px;height:76px;}
+.ring-wrap-full{position:relative;width:76px;height:76px;cursor:default;}
 .ring-wrap-full svg{width:76px;height:76px;display:block;}
 .ring-center{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;}
 .rpct-full{font-size:16px;font-weight:700;color:#f0f0f0;}
 .rtxt{font-size:9px;color:#888;text-align:center;line-height:1.6;}
 .rval{font-size:10px;color:#aaa;font-weight:500;}
 .divv{width:1px;background:#2a2a2a;align-self:stretch;flex-shrink:0;}
-.footer-full{display:flex;justify-content:space-between;align-items:center;padding:8px 16px 12px;border-top:1px solid #2a2a2a;}
+.footer-full{display:flex;justify-content:flex-start;align-items:center;padding:8px 16px 12px;border-top:1px solid #2a2a2a;}
 
 /* ── 미니 모드 160px ── */
 #uiMini{width:160px;display:none;}
@@ -39,12 +47,12 @@ html,body{overflow:hidden;background:#1a1a1a;color:#e8e8e8;font-family:-apple-sy
 .grid-mini{display:grid;grid-template-columns:1fr 1px 1fr;padding:10px 8px 8px;}
 .vline{background:#2a2a2a;align-self:stretch;margin:4px 0;}
 .ring-item-mini{display:flex;flex-direction:column;align-items:center;gap:5px;padding:4px 6px;}
-.ring-wrap-mini{position:relative;width:52px;height:52px;}
+.ring-wrap-mini{position:relative;width:52px;height:52px;cursor:default;}
 .ring-wrap-mini svg{width:52px;height:52px;display:block;}
 .rpct-mini{font-size:12px;font-weight:700;color:#f0f0f0;}
 .mlabel{font-size:9px;color:#888;text-align:center;line-height:1.3;}
 .mreset{font-size:8px;color:#666;text-align:center;line-height:1.5;}
-.footer-mini{display:flex;justify-content:space-between;align-items:center;padding:5px 10px 8px;border-top:1px solid #2a2a2a;}
+.footer-mini{display:flex;justify-content:center;align-items:center;padding:5px 10px 8px;border-top:1px solid #2a2a2a;}
 </style>
 </head>
 <body>
@@ -55,11 +63,12 @@ html,body{overflow:hidden;background:#1a1a1a;color:#e8e8e8;font-family:-apple-sy
     <div style="display:flex;align-items:center;gap:8px;">
       <div style="width:8px;height:8px;border-radius:50%;background:#d97706;flex-shrink:0;"></div>
       <span style="font-size:12px;font-weight:600;color:#ccc;letter-spacing:.02em;">Claude 사용량</span>
-    </div>
-    <div style="display:flex;align-items:center;gap:8px;">
       <span style="font-size:10px;color:#555;" id="planLabel"></span>
-      <button class="toggle-btn" id="btnToggle">축소 ▾</button>
-      <div style="display:flex;gap:5px;">
+    </div>
+    <div style="display:flex;align-items:center;gap:4px;">
+      <button class="iBtn" id="btnRefreshFull" title="새로고침">↻</button>
+      <button class="iBtn" id="btnToggle" title="미니 모드">⊟</button>
+      <div style="display:flex;gap:5px;margin-left:4px;">
         <button class="wb mn" style="width:12px;height:12px;" id="btnMin">–</button>
         <button class="wb cl" style="width:12px;height:12px;" id="btnClose">✕</button>
       </div>
@@ -74,7 +83,6 @@ html,body{overflow:hidden;background:#1a1a1a;color:#e8e8e8;font-family:-apple-sy
   </div>
   <div class="footer-full">
     <span style="font-size:10px;color:#444;" id="updFull">—</span>
-    <button class="rbtn" style="font-size:11px;padding:4px 12px;" id="btnRefreshFull">새로고침</button>
   </div>
 </div>
 
@@ -85,7 +93,10 @@ html,body{overflow:hidden;background:#1a1a1a;color:#e8e8e8;font-family:-apple-sy
       <div style="width:6px;height:6px;border-radius:50%;background:#d97706;flex-shrink:0;"></div>
       <span style="font-size:10px;font-weight:600;color:#aaa;">Claude</span>
     </div>
-    <button class="toggle-btn" id="btnExpand">확대 ▴</button>
+    <div style="display:flex;align-items:center;gap:3px;">
+      <button class="iBtn" id="btnRefreshMini" style="font-size:13px;">↻</button>
+      <button class="iBtn" id="btnExpand" title="확대">⊞</button>
+    </div>
   </div>
   <div id="miniContent">
     <div class="grid-mini">
@@ -96,15 +107,14 @@ html,body{overflow:hidden;background:#1a1a1a;color:#e8e8e8;font-family:-apple-sy
   </div>
   <div class="footer-mini">
     <span style="font-size:9px;color:#444;" id="updMini">—</span>
-    <button class="rbtn" style="font-size:10px;padding:3px 8px;" id="btnRefreshMini">↺</button>
   </div>
 </div>
 
 <script>
 const {ipcRenderer} = require('electron');
 
-let isMini = false, cache = null;
-let snapX = 'right', snapY = 'top'; // 현재 snap된 모서리
+let isMini = false, cache = null, timerInterval = null;
+let snapX = 'right', snapY = 'top';
 
 function initDrag(el) {
   let drag = false, sx, sy;
@@ -127,26 +137,22 @@ initDrag(document.getElementById('titlebarMini'));
 
 document.getElementById('btnClose').addEventListener('click', () => ipcRenderer.send('close-window'));
 document.getElementById('btnMin').addEventListener('click', () => ipcRenderer.send('minimize-window'));
+document.getElementById('btnToggle').addEventListener('click', () => switchMode(true));
+document.getElementById('btnExpand').addEventListener('click', () => switchMode(false));
+document.getElementById('btnRefreshFull').addEventListener('click', () => loadData(true));
+document.getElementById('btnRefreshMini').addEventListener('click', () => loadData(true));
 ipcRenderer.on('login-done', () => loadData(true));
 
 function switchMode(mini) {
   isMini = mini;
-  const full = document.getElementById('uiFull');
-  const min  = document.getElementById('uiMini');
-  if (mini) {
-    full.style.display = 'none';
-    min.style.display  = 'block';
-    ipcRenderer.send('set-size', { w: 160, h: 190, snapX, snapY });
-  } else {
-    min.style.display  = 'none';
-    full.style.display = 'block';
-    ipcRenderer.send('set-size', { w: 580, h: 280, snapX, snapY });
-  }
+  document.getElementById('uiFull').style.display = mini ? 'none' : 'block';
+  document.getElementById('uiMini').style.display = mini ? 'block' : 'none';
+  ipcRenderer.send('set-size', mini
+    ? { w: 160, h: 190, snapX, snapY }
+    : { w: 580, h: 280, snapX, snapY }
+  );
   if (cache) mini ? renderMini(cache) : renderFull(cache);
 }
-
-document.getElementById('btnToggle').addEventListener('click', () => switchMode(true));
-document.getElementById('btnExpand').addEventListener('click', () => switchMode(false));
 
 function ringColor(p) { return p >= 80 ? '#ef4444' : p >= 50 ? '#f59e0b' : '#22c55e'; }
 
@@ -160,47 +166,65 @@ function makeRingMini(p) {
   return `<svg viewBox="0 0 52 52"><circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="#2a2a2a" stroke-width="5"/><circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="${col}" stroke-width="5" stroke-dasharray="${ci.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}" stroke-linecap="round" transform="rotate(-90 ${c} ${c})"/></svg>`;
 }
 
+function cardBorder(p) {
+  if (p >= 80) return 'rgba(239,68,68,0.45)';
+  if (p >= 50) return 'rgba(245,158,11,0.38)';
+  return '#2e2e2e';
+}
+function cardBg(p) {
+  if (p >= 80) return 'rgba(239,68,68,0.07)';
+  if (p >= 50) return 'rgba(245,158,11,0.06)';
+  return '#252525';
+}
+
 function renderFull(data) {
   if (data.plan) document.getElementById('planLabel').textContent = data.plan;
   const s  = data.session       || { pct: 0, reset: '' };
   const wa = data.weekly_all    || { pct: 0, reset: '' };
   const ws = data.weekly_sonnet || { pct: 0, reset: '' };
   const ex = data.extra         || { pct: 0, reset: '' };
-  const card = (lbl, pct, l1, l2) =>
-    `<div class="card-full">
+
+  const card = (lbl, pct, resetTxt, extraTxt) => {
+    const tip = (resetTxt || '').replace(/"/g, '&quot;');
+    return `<div class="card-full" style="border-color:${cardBorder(pct)};background:${cardBg(pct)};">
       <div class="clabel">${lbl}</div>
-      <div class="ring-wrap-full">${makeRingFull(pct)}<div class="ring-center"><span class="rpct-full">${pct}%</span></div></div>
-      <div class="rtxt"><div class="rval">${l1}</div>${l2 ? `<div>${l2}</div>` : ''}</div>
+      <div class="ring-wrap-full tip" data-tip="${tip || '재설정 정보 없음'}">
+        ${makeRingFull(pct)}<div class="ring-center"><span class="rpct-full">${pct}%</span></div>
+      </div>
+      <div class="rtxt"><div class="rval">${resetTxt || '—'}</div>${extraTxt ? `<div>${extraTxt}</div>` : ''}</div>
     </div>`;
+  };
+
   document.getElementById('fullContent').innerHTML =
     `<div class="body-full">
-      ${card('현재 세션',   s.pct,  s.reset,  '')}
+      ${card('현재 세션', s.pct, s.reset, '')}
       <div class="divv"></div>
       ${card('주간 · 전체', wa.pct, wa.reset, '')}
       <div class="divv"></div>
       ${card('주간 · Sonnet', ws.pct, ws.reset, '')}
       <div class="divv"></div>
-      ${card('추가 사용량', ex.pct, data.extra_balance ? `잔액 ${data.extra_balance}` : (data.extra_used || ''), ex.reset)}
+      ${card('추가 사용량', ex.pct, ex.reset, data.extra_balance ? `잔액 ${data.extra_balance}` : (data.extra_used || ''))}
     </div>`;
-  setUpdated('updFull', data.fetched_at);
 }
 
 function renderMini(data) {
   const s  = data.session    || { pct: 0, reset: '' };
   const wa = data.weekly_all || { pct: 0, reset: '' };
+  const item = (pct, label, reset) => {
+    const tip = (reset || '').replace(/"/g, '&quot;');
+    return `<div class="ring-item-mini">
+      <div class="ring-wrap-mini tip" data-tip="${tip || '재설정 정보 없음'}">
+        ${makeRingMini(pct)}<div class="ring-center"><span class="rpct-mini">${pct}%</span></div>
+      </div>
+      <div class="mlabel">${label}</div><div class="mreset">${reset || ''}</div>
+    </div>`;
+  };
   document.getElementById('miniContent').innerHTML =
     `<div class="grid-mini">
-      <div class="ring-item-mini">
-        <div class="ring-wrap-mini">${makeRingMini(s.pct)}<div class="ring-center"><span class="rpct-mini">${s.pct}%</span></div></div>
-        <div class="mlabel">현재 세션</div><div class="mreset">${s.reset}</div>
-      </div>
+      ${item(s.pct, '현재 세션', s.reset)}
       <div class="vline"></div>
-      <div class="ring-item-mini">
-        <div class="ring-wrap-mini">${makeRingMini(wa.pct)}<div class="ring-center"><span class="rpct-mini">${wa.pct}%</span></div></div>
-        <div class="mlabel">주간 · 전체</div><div class="mreset">${wa.reset}</div>
-      </div>
+      ${item(wa.pct, '주간 · 전체', wa.reset)}
     </div>`;
-  setUpdated('updMini', data.fetched_at);
 }
 
 function renderError(data) {
@@ -215,17 +239,28 @@ function renderError(data) {
     `<div class="grid-mini"><div class="state-box" style="padding:16px 8px;font-size:10px;grid-column:1/-1;color:#666;">연결 필요</div></div>`;
 }
 
-function setUpdated(id, ts) {
-  if (!ts) return;
+function fmtElapsed(ts) {
   const d = Math.round((Date.now() - ts) / 1000);
-  document.getElementById(id).textContent = d < 60 ? `${d}초 전` : `${Math.round(d / 60)}분 전`;
+  if (d < 5)  return '방금 전';
+  if (d < 60) return `${d}초 전`;
+  return `${Math.round(d / 60)}분 전`;
+}
+
+function startTimer() {
+  if (timerInterval) clearInterval(timerInterval);
+  timerInterval = setInterval(() => {
+    if (!cache?.fetched_at) return;
+    const txt = fmtElapsed(cache.fetched_at);
+    document.getElementById('updFull').textContent = txt;
+    document.getElementById('updMini').textContent = txt;
+  }, 1000);
 }
 
 function setLoading(on) {
   const bf = document.getElementById('btnRefreshFull');
   const bm = document.getElementById('btnRefreshMini');
-  bf.disabled = on; bf.textContent = on ? '로딩 중...' : '새로고침';
-  bm.disabled = on; bm.textContent = on ? '…' : '↺';
+  bf.disabled = on; bf.textContent = on ? '…' : '↻';
+  bm.disabled = on; bm.textContent = on ? '…' : '↻';
 }
 
 function parseHTML(html) {
@@ -261,14 +296,17 @@ async function loadData(force = false) {
   }
   const res = await ipcRenderer.invoke('fetch-usage');
   setLoading(false);
-  if (res.html) { cache = parseHTML(res.html); isMini ? renderMini(cache) : renderFull(cache); }
-  else renderError(res);
+  if (res.html) {
+    cache = parseHTML(res.html);
+    isMini ? renderMini(cache) : renderFull(cache);
+    startTimer();
+  } else {
+    renderError(res);
+  }
 }
 
 function openLogin() { ipcRenderer.send('open-login'); }
 
-document.getElementById('btnRefreshFull').addEventListener('click', () => loadData(true));
-document.getElementById('btnRefreshMini').addEventListener('click', () => loadData(true));
 loadData(true);
 setInterval(() => loadData(true), 10 * 60 * 1000);
 </script>
