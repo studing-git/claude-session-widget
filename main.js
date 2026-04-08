@@ -1,5 +1,16 @@
-const { app, BrowserWindow, BrowserView, ipcMain, session } = require('electron');
+const { app, BrowserWindow, BrowserView, ipcMain, session, screen } = require('electron');
 const path = require('path');
+
+const SNAP_MARGIN = 10; // 화면 모서리로부터의 여백(px)
+
+function getSnapPosition(w, h, snapX, snapY) {
+  const [wx, wy] = mainWindow.getPosition();
+  const display = screen.getDisplayNearestPoint({ x: wx, y: wy });
+  const wa = display.workArea;
+  const x = snapX === 'left' ? wa.x + SNAP_MARGIN : wa.x + wa.width - w - SNAP_MARGIN;
+  const y = snapY === 'top'  ? wa.y + SNAP_MARGIN : wa.y + wa.height - h - SNAP_MARGIN;
+  return { x, y };
+}
 
 let mainWindow;
 
@@ -39,11 +50,34 @@ ipcMain.on('minimize-window', () => {
   mainWindow.minimize();
 });
 
-// 모드 전환 시 창 크기 변경
-ipcMain.on('set-size', (e, { w, h }) => {
+// 모드 전환 시 창 크기 변경 + 모서리 유지
+ipcMain.on('set-size', (e, { w, h, snapX, snapY }) => {
   mainWindow.setResizable(true);
   mainWindow.setSize(w, h);
   mainWindow.setResizable(false);
+  if (snapX && snapY) {
+    const { x, y } = getSnapPosition(w, h, snapX, snapY);
+    mainWindow.setPosition(x, y);
+  }
+});
+
+// 드래그 종료 후 가장 가까운 모서리로 snap
+ipcMain.handle('snap-to-edge', () => {
+  const bounds = mainWindow.getBounds();
+  const display = screen.getDisplayNearestPoint({ x: bounds.x, y: bounds.y });
+  const wa = display.workArea;
+
+  const distLeft   = bounds.x - wa.x;
+  const distRight  = (wa.x + wa.width)  - (bounds.x + bounds.width);
+  const distTop    = bounds.y - wa.y;
+  const distBottom = (wa.y + wa.height) - (bounds.y + bounds.height);
+
+  const snapX = distLeft  <= distRight  ? 'left' : 'right';
+  const snapY = distTop   <= distBottom ? 'top'  : 'bottom';
+
+  const { x, y } = getSnapPosition(bounds.width, bounds.height, snapX, snapY);
+  mainWindow.setPosition(x, y);
+  return { snapX, snapY };
 });
 
 // 로그인 창 열기
