@@ -15,7 +15,7 @@ function getSnapPosition(w, h, snapX, snapY) {
 
 app.whenReady().then(() => {
   mainWindow = new BrowserWindow({
-    width: 580,
+    width: 680,
     height: 280,
     frame: false,
     alwaysOnTop: true,
