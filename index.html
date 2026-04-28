@@ -26,8 +26,8 @@ html,body{overflow:hidden;background:#1a1a1a;color:#e8e8e8;font-family:-apple-sy
 .state-box{text-align:center;color:#666;line-height:1.7;width:100%;}
 .login-btn{display:inline-block;margin-top:10px;padding:6px 16px;background:#d97706;color:#fff;border:none;border-radius:6px;cursor:pointer;font-family:inherit;}
 
-/* ── 일반 모드 580px ── */
-#uiFull{width:580px;display:block;}
+/* ── 일반 모드 680px ── */
+#uiFull{width:680px;display:block;}
 .tb-full{display:flex;justify-content:space-between;align-items:center;padding:10px 16px 9px;border-bottom:1px solid #2a2a2a;cursor:move;}
 .body-full{display:flex;padding:16px 14px;gap:6px;}
 .card-full{flex:1;display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px 8px 12px;background:#252525;border-radius:10px;border:1px solid #2e2e2e;transition:border-color .3s,background .3s;}
@@ -151,7 +151,7 @@ function switchMode(mini) {
   document.getElementById('uiMini').style.display = mini ? 'block' : 'none';
   ipcRenderer.send('set-size', mini
     ? { w: 160, h: 190, snapX, snapY }
-    : { w: 580, h: 280, snapX, snapY }
+    : { w: 680, h: 280, snapX, snapY }
   );
   if (cache) mini ? renderMini(cache) : renderFull(cache);
 }
@@ -181,10 +181,11 @@ function cardBg(p) {
 
 function renderFull(data) {
   if (data.plan) document.getElementById('planLabel').textContent = data.plan;
-  const s  = data.session       || { pct: 0, reset: '' };
-  const wa = data.weekly_all    || { pct: 0, reset: '' };
-  const ws = data.weekly_sonnet || { pct: 0, reset: '' };
-  const ex = data.extra         || { pct: 0, reset: '' };
+  const s  = data.session        || { pct: 0, reset: '' };
+  const wa = data.weekly_all     || { pct: 0, reset: '' };
+  const ws = data.weekly_sonnet  || { pct: 0, reset: '' };
+  const wd = data.weekly_design  || null;
+  const ex = data.extra          || { pct: 0, reset: '' };
 
   const card = (lbl, pct, resetTxt, extraTxt) => {
     const tip = (resetTxt || '').replace(/"/g, '&quot;');
@@ -204,6 +205,7 @@ function renderFull(data) {
       ${card('주간 · 전체', wa.pct, wa.reset, '')}
       <div class="divv"></div>
       ${card('주간 · Sonnet', ws.pct, ws.reset, '')}
+      ${wd ? `<div class="divv"></div>${card('Claude Design', wd.pct, wd.reset, '')}` : ''}
       <div class="divv"></div>
       ${card('추가 사용량', ex.pct, ex.reset, data.extra_balance ? `잔액 ${data.extra_balance}` : (data.extra_used || ''))}
     </div>`;
@@ -303,13 +305,14 @@ function parseHTML(html) {
   const doc = new DOMParser().parseFromString(html, 'text/html');
   const result = {};
   const bars   = doc.querySelectorAll('[role="progressbar"]');
-  const resets = Array.from(doc.querySelectorAll('p')).filter(
-    p => p.textContent.includes('재설정') || p.textContent.includes('reset')
-  );
+  const resets = Array.from(doc.querySelectorAll('p.text-text-400.whitespace-nowrap'));
+  const isNew  = bars.length >= 5;
   if (bars[0]) result.session       = { pct: parseInt(bars[0].getAttribute('aria-valuenow')) || 0, reset: resets[0]?.textContent.trim() || '' };
   if (bars[1]) result.weekly_all    = { pct: parseInt(bars[1].getAttribute('aria-valuenow')) || 0, reset: resets[1]?.textContent.trim() || '' };
   if (bars[2]) result.weekly_sonnet = { pct: parseInt(bars[2].getAttribute('aria-valuenow')) || 0, reset: resets[2]?.textContent.trim() || '' };
-  if (bars[3]) result.extra         = { pct: parseInt(bars[3].getAttribute('aria-valuenow')) || 0, reset: resets[3]?.textContent.trim() || '' };
+  if (isNew && bars[3]) result.weekly_design = { pct: parseInt(bars[3].getAttribute('aria-valuenow')) || 0, reset: resets[3]?.textContent.trim() || '' };
+  const eIdx = isNew ? 5 : 3;
+  if (bars[eIdx]) result.extra      = { pct: parseInt(bars[eIdx].getAttribute('aria-valuenow')) || 0, reset: resets[eIdx]?.textContent.trim() || '' };
   const allP  = Array.from(doc.querySelectorAll('p'));
   const usedP = allP.find(p => p.textContent.match(/US\$[\d.]+\s*사용/));
   if (usedP) result.extra_used = usedP.textContent.trim();
