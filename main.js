@@ -1,142 +1,152 @@
-const { app, BrowserWindow, BrowserView, ipcMain, session } = require('electron');
-const path = require('path');
+const { app, BrowserWindow, BrowserView, ipcMain, session, screen } = require('electron');
 
-let mainWindow;
+const SNAP_MARGIN = 10;
+
+let mainWindow, fetchView;
+
+function getSnapPosition(w, h, snapX, snapY) {
+  const [wx, wy] = mainWindow.getPosition();
+  const display = screen.getDisplayNearestPoint({ x: wx, y: wy });
+  const wa = display.workArea;
+  const x = snapX === 'left' ? wa.x + SNAP_MARGIN : wa.x + wa.width  - w - SNAP_MARGIN;
+  const y = snapY === 'top'  ? wa.y + SNAP_MARGIN : wa.y + wa.height - h - SNAP_MARGIN;
+  return { x, y };
+}
 
 app.whenReady().then(() => {
   mainWindow = new BrowserWindow({
     width: 580,
-    height: 280,
+    height: 240,
     frame: false,
     alwaysOnTop: true,
     resizable: true,
-    webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
-    },
+    skipTaskbar: false,
+    webPreferences: { nodeIntegration: true, contextIsolation: false },
   });
-
   mainWindow.loadFile('index.html');
+  mainWindow.webContents.on('before-input-event', (e, input) => {
+    if (input.key === 'F12') mainWindow.webContents.openDevTools({ mode: 'detach' });
+  });
 });
 
-app.on('window-all-closed', () => {
-  app.quit();
+app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+
+ipcMain.on('move-window', (e, { dx, dy }) => {
+  const [x, y] = mainWindow.getPosition();
+  mainWindow.setPosition(x + dx, y + dy);
+});
+ipcMain.on('close-window', () => app.quit());
+ipcMain.on('minimize-window', () => mainWindow.minimize());
+
+ipcMain.on('set-size', (e, { w, h, snapX, snapY }) => {
+  const [, ch] = mainWindow.getSize();
+  const newH = h ?? ch;
+  mainWindow.setResizable(true);
+  mainWindow.setSize(w, newH);
+  mainWindow.setResizable(false);
+  if (snapX && snapY) {
+    const { x, y } = getSnapPosition(w, newH, snapX, snapY);
+    mainWindow.setPosition(x, y);
+  }
 });
 
-// 창 드래그 이동
-ipcMain.on('move-window', (e, { x, y }) => {
-  const [wx, wy] = mainWindow.getPosition();
-  mainWindow.setPosition(wx + x, wy + y);
-});
-
-// 앱 종료
-ipcMain.on('close-window', () => {
-  app.quit();
-});
-
-// 창 최소화
-ipcMain.on('minimize-window', () => {
-  mainWindow.minimize();
-});
-
-// 모드 전환 시 창 크기 변경
-ipcMain.on('set-size', (e, { w, h }) => {
+ipcMain.on('resize-height', (e, { h, snapX, snapY }) => {
+  const [w] = mainWindow.getSize();
   mainWindow.setResizable(true);
   mainWindow.setSize(w, h);
   mainWindow.setResizable(false);
+  if (snapX && snapY) {
+    const { x, y } = getSnapPosition(w, h, snapX, snapY);
+    mainWindow.setPosition(x, y);
+  }
 });
 
-// 로그인 창 열기
-ipcMain.on('open-login', () => {
-  const loginWin = new BrowserWindow({
-    width: 500,
-    height: 700,
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-    },
-  });
+ipcMain.handle('snap-to-edge', () => {
+  const bounds = mainWindow.getBounds();
+  const display = screen.getDisplayNearestPoint({ x: bounds.x, y: bounds.y });
+  const wa = display.workArea;
 
-  loginWin.loadURL('https://claude.ai/login');
+  const distLeft   = bounds.x - wa.x;
+  const distRight  = (wa.x + wa.width)  - (bounds.x + bounds.width);
+  const distTop    = bounds.y - wa.y;
+  const distBottom = (wa.y + wa.height) - (bounds.y + bounds.height);
 
-  loginWin.webContents.on('did-navigate', (e, url) => {
-    if (url.startsWith('https://claude.ai') && !url.includes('/login')) {
-      mainWindow.webContents.send('login-done');
-      loginWin.close();
+  const snapX = distLeft  <= distRight  ? 'left' : 'right';
+  const snapY = distTop   <= distBottom ? 'top'  : 'bottom';
+
+  const { x, y } = getSnapPosition(bounds.width, bounds.height, snapX, snapY);
+  mainWindow.setPosition(x, y);
+  return { snapX, snapY };
+});
+
+ipcMain.handle('fetch-usage', async () => {
+  return new Promise((resolve) => {
+    try {
+      if (fetchView) {
+        try { mainWindow.removeBrowserView(fetchView); } catch(e) {}
+        try { fetchView.webContents.destroy(); } catch(e) {}
+        fetchView = null;
+      }
+      fetchView = new BrowserView({
+        webPreferences: { session: session.defaultSession, nodeIntegration: false, contextIsolation: true },
+      });
+      mainWindow.addBrowserView(fetchView);
+      fetchView.setBounds({ x: -2000, y: -2000, width: 1280, height: 800 });
+
+      const wc = fetchView.webContents;
+      let resolved = false;
+      const done = (result) => {
+        if (resolved) return;
+        resolved = true;
+        try { mainWindow.removeBrowserView(fetchView); } catch(e) {}
+        try { fetchView.webContents.destroy(); } catch(e) {}
+        fetchView = null;
+        resolve(result);
+      };
+
+      const poll = async (n = 0) => {
+        if (resolved) return;
+        if (n > 20) {
+          const html = await wc.executeJavaScript('document.documentElement.outerHTML');
+          done({ html });
+          return;
+        }
+        try {
+          const found = await wc.executeJavaScript(`document.querySelector('[role="progressbar"]') !== null`);
+          if (found) {
+            await new Promise(r => setTimeout(r, 500));
+            const html = await wc.executeJavaScript('document.documentElement.outerHTML');
+            done({ html });
+          } else {
+            setTimeout(() => poll(n + 1), 500);
+          }
+        } catch(e) {
+          setTimeout(() => poll(n + 1), 500);
+        }
+      };
+
+      wc.on('did-finish-load', () => {
+        const url = wc.getURL();
+        if (url.includes('/login') || url.includes('/auth')) {
+          done({ error: 'auth', message: '로그인이 필요합니다' });
+          return;
+        }
+        setTimeout(() => poll(0), 1000);
+      });
+      wc.on('did-fail-load', (e, code, desc) => done({ error: 'network', message: desc }));
+      setTimeout(() => done({ error: 'timeout', message: '시간 초과' }), 20000);
+      wc.loadURL('https://claude.ai/settings/usage');
+    } catch(e) {
+      resolve({ error: 'unknown', message: e.message });
     }
   });
 });
 
-// usage 데이터 fetch
-ipcMain.handle('fetch-usage', async () => {
-  return new Promise((resolve, reject) => {
-    const view = new BrowserView({
-      webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: true,
-        session: session.defaultSession,
-      },
-    });
-
-    mainWindow.addBrowserView(view);
-    // 화면 밖에 숨김
-    view.setBounds({ x: -2000, y: -2000, width: 1280, height: 900 });
-
-    view.webContents.loadURL('https://claude.ai/settings/usage');
-
-    view.webContents.once('did-finish-load', () => {
-      // 1초 대기 후 폴링 시작
-      setTimeout(() => {
-        let attempts = 0;
-        const maxAttempts = 40; // 최대 20초
-
-        const poll = setInterval(async () => {
-          attempts++;
-          try {
-            const found = await view.webContents.executeJavaScript(
-              `document.querySelectorAll('[role="progressbar"]').length > 0`
-            );
-
-            if (found || attempts >= maxAttempts) {
-              clearInterval(poll);
-
-              if (!found) {
-                mainWindow.removeBrowserView(view);
-                view.webContents.destroy();
-                reject(new Error('progressbar not found after timeout'));
-                return;
-              }
-
-              // 0.5초 추가 대기 후 추출
-              setTimeout(async () => {
-                try {
-                  const html = await view.webContents.executeJavaScript(
-                    `document.body.outerHTML`
-                  );
-                  mainWindow.removeBrowserView(view);
-                  view.webContents.destroy();
-                  resolve(html);
-                } catch (err) {
-                  mainWindow.removeBrowserView(view);
-                  view.webContents.destroy();
-                  reject(err);
-                }
-              }, 500);
-            }
-          } catch (err) {
-            clearInterval(poll);
-            mainWindow.removeBrowserView(view);
-            view.webContents.destroy();
-            reject(err);
-          }
-        }, 500);
-      }, 1000);
-    });
-
-    view.webContents.once('did-fail-load', (e, code, desc) => {
-      mainWindow.removeBrowserView(view);
-      view.webContents.destroy();
-      reject(new Error(`Page load failed: ${desc}`));
-    });
+ipcMain.on('open-login', () => {
+  const w = new BrowserWindow({
+    width: 500, height: 700, alwaysOnTop: true,
+    webPreferences: { session: session.defaultSession },
   });
+  w.loadURL('https://claude.ai/login');
+  w.on('closed', () => mainWindow.webContents.send('login-done'));
 });
