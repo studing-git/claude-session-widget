@@ -26,11 +26,11 @@ html,body{overflow:hidden;background:#1a1a1a;color:#e8e8e8;font-family:-apple-sy
 .state-box{text-align:center;color:#666;line-height:1.7;width:100%;}
 .login-btn{display:inline-block;margin-top:10px;padding:6px 16px;background:#d97706;color:#fff;border:none;border-radius:6px;cursor:pointer;font-family:inherit;}
 
-/* ── 일반 모드 680px ── */
-#uiFull{width:680px;display:block;}
+/* ── 일반 모드 580px ── */
+#uiFull{width:580px;display:block;}
 .tb-full{display:flex;justify-content:space-between;align-items:center;padding:10px 16px 9px;border-bottom:1px solid #2a2a2a;cursor:move;}
 .body-full{display:flex;padding:16px 14px;gap:6px;}
-.card-full{flex:1;display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px 8px 12px;background:#252525;border-radius:10px;border:1px solid #2e2e2e;transition:border-color .3s,background .3s;}
+.card-full{flex:1;display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px 1px 12px;background:#252525;border-radius:10px;border:1px solid #2e2e2e;transition:border-color .3s,background .3s;}
 .clabel{font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:#666;font-weight:600;}
 .ring-wrap-full{position:relative;width:76px;height:76px;cursor:default;}
 .ring-wrap-full svg{width:76px;height:76px;display:block;}
@@ -149,11 +149,9 @@ function switchMode(mini) {
   isMini = mini;
   document.getElementById('uiFull').style.display = mini ? 'none' : 'block';
   document.getElementById('uiMini').style.display = mini ? 'block' : 'none';
-  ipcRenderer.send('set-size', mini
-    ? { w: 160, h: 190, snapX, snapY }
-    : { w: 680, h: 280, snapX, snapY }
-  );
+  ipcRenderer.send('set-size', mini ? { w: 160, snapX, snapY } : { w: 580, snapX, snapY });
   if (cache) mini ? renderMini(cache) : renderFull(cache);
+  else resizeToContent();
 }
 
 function ringColor(p) { return p >= 80 ? '#ef4444' : p >= 50 ? '#f59e0b' : '#22c55e'; }
@@ -209,6 +207,7 @@ function renderFull(data) {
       <div class="divv"></div>
       ${card('추가 사용량', ex.pct, ex.reset, data.extra_balance ? `잔액 ${data.extra_balance}` : (data.extra_used || ''))}
     </div>`;
+  resizeToContent();
 }
 
 function renderMini(data) {
@@ -229,6 +228,7 @@ function renderMini(data) {
       <div class="vline"></div>
       ${item(wa.pct, '주간 · 전체', wa.reset)}
     </div>`;
+  resizeToContent();
 }
 
 function renderError(data) {
@@ -241,6 +241,7 @@ function renderError(data) {
     </div></div>`;
   document.getElementById('miniContent').innerHTML =
     `<div class="grid-mini"><div class="state-box" style="padding:16px 8px;font-size:10px;grid-column:1/-1;color:#666;">연결 필요</div></div>`;
+  resizeToContent();
 }
 
 function fmtElapsed(ts) {
@@ -248,6 +249,13 @@ function fmtElapsed(ts) {
   if (d < 5)  return '방금 전';
   if (d < 60) return `${d}초 전`;
   return `${Math.round(d / 60)}분 전`;
+}
+
+function resizeToContent() {
+  requestAnimationFrame(() => {
+    const el = document.getElementById(isMini ? 'uiMini' : 'uiFull');
+    ipcRenderer.send('resize-height', { h: el.offsetHeight, snapX, snapY });
+  });
 }
 
 function setFooter(txt) {
@@ -305,7 +313,9 @@ function parseHTML(html) {
   const doc = new DOMParser().parseFromString(html, 'text/html');
   const result = {};
   const bars   = doc.querySelectorAll('[role="progressbar"]');
-  const resets = Array.from(doc.querySelectorAll('p.text-text-400.whitespace-nowrap'));
+  const resets = Array.from(doc.querySelectorAll('p')).filter(
+    p => p.textContent.includes('재설정') || p.textContent.includes('reset') || p.textContent.includes('아직')
+  );
   const isNew  = bars.length >= 5;
   if (bars[0]) result.session       = { pct: parseInt(bars[0].getAttribute('aria-valuenow')) || 0, reset: resets[0]?.textContent.trim() || '' };
   if (bars[1]) result.weekly_all    = { pct: parseInt(bars[1].getAttribute('aria-valuenow')) || 0, reset: resets[1]?.textContent.trim() || '' };

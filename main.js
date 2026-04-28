@@ -15,8 +15,8 @@ function getSnapPosition(w, h, snapX, snapY) {
 
 app.whenReady().then(() => {
   mainWindow = new BrowserWindow({
-    width: 680,
-    height: 280,
+    width: 580,
+    height: 240,
     frame: false,
     alwaysOnTop: true,
     resizable: true,
@@ -39,6 +39,19 @@ ipcMain.on('close-window', () => app.quit());
 ipcMain.on('minimize-window', () => mainWindow.minimize());
 
 ipcMain.on('set-size', (e, { w, h, snapX, snapY }) => {
+  const [, ch] = mainWindow.getSize();
+  const newH = h ?? ch;
+  mainWindow.setResizable(true);
+  mainWindow.setSize(w, newH);
+  mainWindow.setResizable(false);
+  if (snapX && snapY) {
+    const { x, y } = getSnapPosition(w, newH, snapX, snapY);
+    mainWindow.setPosition(x, y);
+  }
+});
+
+ipcMain.on('resize-height', (e, { h, snapX, snapY }) => {
+  const [w] = mainWindow.getSize();
   mainWindow.setResizable(true);
   mainWindow.setSize(w, h);
   mainWindow.setResizable(false);
