@@ -335,6 +335,24 @@ function parseHTML(html) {
     return '';
   }
 
+  // Debug: log card-level text nodes for each progressbar
+  console.group('[parseHTML] bars found:', bars.length);
+  for (let i = 0; i < Math.min(bars.length, 7); i++) {
+    const bar = bars[i];
+    let card = bar.parentElement, depth = 0;
+    while (card) {
+      const parent = card.parentElement;
+      if (!parent || parent.querySelectorAll('[role="progressbar"]').length > 1) break;
+      card = parent; depth++;
+    }
+    const texts = card
+      ? Array.from(card.querySelectorAll('p, span'))
+          .map(el => el.textContent.trim()).filter(t => t && t.length < 120)
+      : [];
+    console.log(`bar[${i}] pct=${bar.getAttribute('aria-valuenow')} cardDepth=${depth} reset="${getResetText(bar)}" | all texts:`, texts);
+  }
+  console.groupEnd();
+
   const isNew  = bars.length >= 5;
   if (bars[0]) result.session       = { pct: parseInt(bars[0].getAttribute('aria-valuenow')) || 0, reset: getResetText(bars[0]) };
   if (bars[1]) result.weekly_all    = { pct: parseInt(bars[1].getAttribute('aria-valuenow')) || 0, reset: getResetText(bars[1]) };
@@ -342,7 +360,6 @@ function parseHTML(html) {
   if (isNew && bars[3]) result.weekly_design = { pct: parseInt(bars[3].getAttribute('aria-valuenow')) || 0, reset: getResetText(bars[3]) };
   const eIdx = isNew ? 5 : 3;
   if (bars[eIdx]) result.extra      = { pct: parseInt(bars[eIdx].getAttribute('aria-valuenow')) || 0, reset: getResetText(bars[eIdx]) };
-  console.log('[parseHTML] bars:', bars.length, '| resets:', [0,1,2,3,eIdx].map(i => bars[i] ? getResetText(bars[i]) || '(empty)' : '-'));
   const allP  = Array.from(doc.querySelectorAll('p'));
   const usedP = allP.find(p => p.textContent.match(/US\$[\d.]+\s*사용/));
   if (usedP) result.extra_used = usedP.textContent.trim();
