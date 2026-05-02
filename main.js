@@ -1,3 +1,5 @@
+process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true';
+
 const { app, BrowserWindow, BrowserView, ipcMain, session, screen } = require('electron');
 
 const SNAP_MARGIN = 10;

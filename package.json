@@ -4,7 +4,7 @@
   "description": "Claude.ai Max plan usage desktop widget",
   "main": "main.js",
   "scripts": {
-    "start": "set ELECTRON_DISABLE_SECURITY_WARNINGS=true && electron ."
+    "start": "electron ."
   },
   "dependencies": {
     "electron": "^28.0.0"
