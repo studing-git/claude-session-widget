@@ -2,6 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8"/>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
 html,body{overflow:hidden;background:#1a1a1a;color:#e8e8e8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;user-select:none;border-radius:14px;border:1px solid #2e2e2e;}
@@ -313,16 +314,48 @@ function parseHTML(html) {
   const doc = new DOMParser().parseFromString(html, 'text/html');
   const result = {};
   const bars   = doc.querySelectorAll('[role="progressbar"]');
-  const resets = Array.from(doc.querySelectorAll('p')).filter(
-    p => p.textContent.includes('재설정') || p.textContent.includes('reset') || p.textContent.includes('아직')
-  );
+
+  function getResetText(bar) {
+    let card = bar.parentElement;
+    while (card) {
+      const parent = card.parentElement;
+      if (!parent || parent.querySelectorAll('[role="progressbar"]').length > 1) break;
+      card = parent;
+    }
+    if (!card) return '';
+    for (const el of card.querySelectorAll('p, span')) {
+      const t = el.textContent.trim();
+      if (t && (t.includes('재설정') || t.toLowerCase().includes('reset') || t.includes('아직'))) {
+        return t;
+      }
+    }
+    return '';
+  }
+
+  console.group('[parseHTML] bars found:', bars.length);
+  for (let i = 0; i < Math.min(bars.length, 7); i++) {
+    const bar = bars[i];
+    let card = bar.parentElement, depth = 0;
+    while (card) {
+      const parent = card.parentElement;
+      if (!parent || parent.querySelectorAll('[role="progressbar"]').length > 1) break;
+      card = parent; depth++;
+    }
+    const texts = card
+      ? Array.from(card.querySelectorAll('p, span'))
+          .map(el => el.textContent.trim()).filter(t => t && t.length < 120)
+      : [];
+    console.log(`bar[${i}] pct=${bar.getAttribute('aria-valuenow')} cardDepth=${depth} reset="${getResetText(bar)}" | all texts:`, texts);
+  }
+  console.groupEnd();
+
   const isNew  = bars.length >= 5;
-  if (bars[0]) result.session       = { pct: parseInt(bars[0].getAttribute('aria-valuenow')) || 0, reset: resets[0]?.textContent.trim() || '' };
-  if (bars[1]) result.weekly_all    = { pct: parseInt(bars[1].getAttribute('aria-valuenow')) || 0, reset: resets[1]?.textContent.trim() || '' };
-  if (bars[2]) result.weekly_sonnet = { pct: parseInt(bars[2].getAttribute('aria-valuenow')) || 0, reset: resets[2]?.textContent.trim() || '' };
-  if (isNew && bars[3]) result.weekly_design = { pct: parseInt(bars[3].getAttribute('aria-valuenow')) || 0, reset: resets[3]?.textContent.trim() || '' };
+  if (bars[0]) result.session       = { pct: parseInt(bars[0].getAttribute('aria-valuenow')) || 0, reset: getResetText(bars[0]) };
+  if (bars[1]) result.weekly_all    = { pct: parseInt(bars[1].getAttribute('aria-valuenow')) || 0, reset: getResetText(bars[1]) };
+  if (bars[2]) result.weekly_sonnet = { pct: parseInt(bars[2].getAttribute('aria-valuenow')) || 0, reset: getResetText(bars[2]) };
+  if (isNew && bars[3]) result.weekly_design = { pct: parseInt(bars[3].getAttribute('aria-valuenow')) || 0, reset: getResetText(bars[3]) };
   const eIdx = isNew ? 5 : 3;
-  if (bars[eIdx]) result.extra      = { pct: parseInt(bars[eIdx].getAttribute('aria-valuenow')) || 0, reset: resets[eIdx]?.textContent.trim() || '' };
+  if (bars[eIdx]) result.extra      = { pct: parseInt(bars[eIdx].getAttribute('aria-valuenow')) || 0, reset: getResetText(bars[eIdx]) };
   const allP  = Array.from(doc.querySelectorAll('p'));
   const usedP = allP.find(p => p.textContent.match(/US\$[\d.]+\s*사용/));
   if (usedP) result.extra_used = usedP.textContent.trim();
