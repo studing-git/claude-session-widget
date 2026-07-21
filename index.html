@@ -180,11 +180,10 @@ function cardBg(p) {
 
 function renderFull(data) {
   if (data.plan) document.getElementById('planLabel').textContent = data.plan;
-  const s  = data.session        || { pct: 0, reset: '' };
-  const wa = data.weekly_all     || { pct: 0, reset: '' };
-  const ws = data.weekly_sonnet  || { pct: 0, reset: '' };
-  const wd = data.weekly_design  || null;
-  const ex = data.extra          || { pct: 0, reset: '' };
+  const s  = data.session       || { pct: 0, reset: '' };
+  const wa = data.weekly_all    || { pct: 0, reset: '' };
+  const wm = data.weekly_model  || null;
+  const ex = data.extra         || { pct: 0, reset: '' };
 
   const card = (lbl, pct, resetTxt, extraTxt) => {
     const tip = (resetTxt || '').replace(/"/g, '&quot;');
@@ -202,11 +201,9 @@ function renderFull(data) {
       ${card('현재 세션', s.pct, s.reset, '')}
       <div class="divv"></div>
       ${card('주간 · 전체', wa.pct, wa.reset, '')}
+      ${wm ? `<div class="divv"></div>${card(wm.label ? `주간 · ${wm.label}` : '주간 · 모델', wm.pct, wm.reset, '')}` : ''}
       <div class="divv"></div>
-      ${card('주간 · Sonnet', ws.pct, ws.reset, '')}
-      ${wd ? `<div class="divv"></div>${card('Claude Design', wd.pct, wd.reset, '')}` : ''}
-      <div class="divv"></div>
-      ${card('추가 사용량', ex.pct, ex.reset, data.extra_balance ? `잔액 ${data.extra_balance}` : (data.extra_used || ''))}
+      ${card('사용 크레딧', ex.pct, ex.reset, data.extra_balance ? `잔액 ${data.extra_balance}` : (data.extra_used || ''))}
     </div>`;
   resizeToContent();
 }
@@ -313,15 +310,20 @@ function setLoading(on) {
 function parseHTML(html) {
   const doc = new DOMParser().parseFromString(html, 'text/html');
   const result = {};
-  const bars   = doc.querySelectorAll('[role="progressbar"]');
+  const bars   = Array.from(doc.querySelectorAll('[role="meter"]'));
 
-  function getResetText(bar) {
+  function getCard(bar) {
     let card = bar.parentElement;
     while (card) {
       const parent = card.parentElement;
-      if (!parent || parent.querySelectorAll('[role="progressbar"]').length > 1) break;
+      if (!parent || parent.querySelectorAll('[role="meter"]').length > 1) break;
       card = parent;
     }
+    return card;
+  }
+
+  function getResetText(bar) {
+    const card = getCard(bar);
     if (!card) return '';
     for (const el of card.querySelectorAll('p, span')) {
       const t = el.textContent.trim();
@@ -332,39 +334,80 @@ function parseHTML(html) {
     return '';
   }
 
-  console.group('[parseHTML] bars found:', bars.length);
-  for (let i = 0; i < Math.min(bars.length, 7); i++) {
-    const bar = bars[i];
-    let card = bar.parentElement, depth = 0;
-    while (card) {
-      const parent = card.parentElement;
-      if (!parent || parent.querySelectorAll('[role="progressbar"]').length > 1) break;
-      card = parent; depth++;
-    }
-    const texts = card
-      ? Array.from(card.querySelectorAll('p, span'))
+  const entries = bars.map(bar => {
+    const card = getCard(bar);
+    return {
+      bar, card,
+      text: card ? card.textContent : '',
+      pct: parseInt(bar.getAttribute('aria-valuenow')) || 0,
+      reset: getResetText(bar),
+    };
+  });
+
+  console.group('[parseHTML] meters found:', entries.length);
+  entries.slice(0, 7).forEach((e, i) => {
+    const texts = e.card
+      ? Array.from(e.card.querySelectorAll('p, span'))
           .map(el => el.textContent.trim()).filter(t => t && t.length < 120)
       : [];
-    console.log(`bar[${i}] pct=${bar.getAttribute('aria-valuenow')} cardDepth=${depth} reset="${getResetText(bar)}" | all texts:`, texts);
-  }
+    console.log(`meter[${i}] pct=${e.pct} reset="${e.reset}" | all texts:`, texts);
+  });
   console.groupEnd();
 
-  const isNew  = bars.length >= 5;
-  if (bars[0]) result.session       = { pct: parseInt(bars[0].getAttribute('aria-valuenow')) || 0, reset: getResetText(bars[0]) };
-  if (bars[1]) result.weekly_all    = { pct: parseInt(bars[1].getAttribute('aria-valuenow')) || 0, reset: getResetText(bars[1]) };
-  if (bars[2]) result.weekly_sonnet = { pct: parseInt(bars[2].getAttribute('aria-valuenow')) || 0, reset: getResetText(bars[2]) };
-  if (isNew && bars[3]) result.weekly_design = { pct: parseInt(bars[3].getAttribute('aria-valuenow')) || 0, reset: getResetText(bars[3]) };
-  const eIdx = isNew ? 5 : 3;
-  if (bars[eIdx]) result.extra      = { pct: parseInt(bars[eIdx].getAttribute('aria-valuenow')) || 0, reset: getResetText(bars[eIdx]) };
-  const allP  = Array.from(doc.querySelectorAll('p'));
-  const usedP = allP.find(p => p.textContent.match(/US\$[\d.]+\s*사용/));
-  if (usedP) result.extra_used = usedP.textContent.trim();
-  for (const div of doc.querySelectorAll('div')) {
-    const ps = div.querySelectorAll(':scope > p');
-    if (ps.length >= 2 && ps[1]?.textContent.includes('현재 잔액')) { result.extra_balance = ps[0]?.textContent.trim(); break; }
+  const byLabel = (...labels) =>
+    entries.find(e => labels.some(l => e.text.toLowerCase().includes(l.toLowerCase())));
+
+  const sessionE = byLabel('현재 세션', 'Current session') || entries[0];
+  const allE     = byLabel('모든 모델', 'All models')      || entries[1];
+  const extraE   = byLabel('사용 크레딧', 'usage credit')  ||
+                   (entries.length >= 4 ? entries[entries.length - 1] : null);
+  const modelE   = entries.find(e => e !== sessionE && e !== allE && e !== extraE) || null;
+
+  const toUsage = e => e ? { pct: e.pct, reset: e.reset } : null;
+  if (sessionE) result.session    = toUsage(sessionE);
+  if (allE)     result.weekly_all = toUsage(allE);
+  if (extraE)   result.extra      = toUsage(extraE);
+  if (modelE) {
+    let label = '';
+    for (const el of modelE.card?.querySelectorAll('p, span, div, h1, h2, h3') || []) {
+      const t = el.textContent.trim();
+      if (t && t.length < 40 && !t.includes('%') && !t.includes('재설정') &&
+          !t.includes('사용됨') && !t.includes('US$') && !t.includes('아직')) { label = t; break; }
+    }
+    result.weekly_model = { pct: modelE.pct, reset: modelE.reset, label };
   }
-  const planEl = doc.querySelector('span.text-text-300');
-  if (planEl) result.plan = planEl.textContent.trim();
+
+  for (const el of doc.querySelectorAll('p, span, div')) {
+    const t = el.textContent.trim();
+    const m = t.match(/US\$[\d.]+\s*사용/);
+    if (m && t.length < 60) { result.extra_used = m[0]; break; }
+  }
+  for (const el of doc.querySelectorAll('p, span, div')) {
+    const t = el.textContent;
+    if (!t.includes('현재 잔액') || t.length > 120) continue;
+    let scope = el, hops = 0;
+    while (scope && hops < 4) {
+      const amounts = scope.textContent.match(/US\$[\d.]+(?:\s*사용)?/g) || [];
+      const bal = amounts.find(a => !a.includes('사용'));
+      if (bal) { result.extra_balance = bal; break; }
+      scope = scope.parentElement; hops++;
+    }
+    break;
+  }
+
+  let plan = '';
+  for (const el of doc.querySelectorAll('div[class*="items-start"][class*="justify-between"] *')) {
+    const t = el.textContent.trim();
+    if (/^Max \(\d+x\)$/.test(t)) { plan = t; break; }
+  }
+  if (!plan) {
+    for (const el of doc.querySelectorAll('p, span, div')) {
+      const t = el.textContent.trim();
+      const m = t.length < 60 && t.match(/Max \(\d+x\)/);
+      if (m) { plan = m[0]; break; }
+    }
+  }
+  if (plan) result.plan = plan;
   result.fetched_at = Date.now();
   return result;
 }

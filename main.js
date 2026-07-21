@@ -114,7 +114,7 @@ ipcMain.handle('fetch-usage', async () => {
           return;
         }
         try {
-          const found = await wc.executeJavaScript(`document.querySelector('[role="progressbar"]') !== null`);
+          const found = await wc.executeJavaScript(`document.querySelector('[role="meter"]') !== null`);
           if (found) {
             await new Promise(r => setTimeout(r, 500));
             const html = await wc.executeJavaScript('document.documentElement.outerHTML');
