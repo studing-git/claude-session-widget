@@ -3,7 +3,7 @@ process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true';
 const { app, BrowserWindow, BrowserView, ipcMain, session, screen } = require('electron');
 const updater = require('./updater');
 
-const SNAP_MARGIN = 10;
+const SNAP_MARGIN = 0;
 const UPDATE_CHECK_INTERVAL = 30 * 60 * 1000;
 
 let mainWindow, fetchView, updateTimer;
@@ -17,24 +17,40 @@ function getSnapPosition(w, h, snapX, snapY) {
   return { x, y };
 }
 
-app.whenReady().then(() => {
-  mainWindow = new BrowserWindow({
-    width: 580,
-    height: 240,
-    frame: false,
-    alwaysOnTop: true,
-    resizable: true,
-    skipTaskbar: false,
-    webPreferences: { nodeIntegration: true, contextIsolation: false },
-  });
-  mainWindow.loadFile('index.html');
-  mainWindow.webContents.on('before-input-event', (e, input) => {
-    if (input.key === 'F12') mainWindow.webContents.openDevTools({ mode: 'detach' });
+// 위젯이 중복 실행되면 두 프로세스가 같은 캐시 디렉터리를 다투게 되어
+// "Unable to move the cache (0x5)" 류의 오류가 나고 창도 여러 개 뜬다.
+// 두 번째 실행은 기존 창을 앞으로 가져오고 스스로 종료한다.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
   });
 
-  // 시작 시 확인은 렌더러가 준비된 뒤 직접 호출한다(check-update). 이후 30분마다 재확인.
-  updateTimer = setInterval(runUpdateCheck, UPDATE_CHECK_INTERVAL);
-});
+  app.whenReady().then(() => {
+    mainWindow = new BrowserWindow({
+      width: 580,
+      height: 240,
+      frame: false,
+      alwaysOnTop: true,
+      resizable: true,
+      skipTaskbar: false,
+      webPreferences: { nodeIntegration: true, contextIsolation: false },
+    });
+    mainWindow.loadFile('index.html');
+    mainWindow.webContents.on('before-input-event', (e, input) => {
+      if (input.key === 'F12') mainWindow.webContents.openDevTools({ mode: 'detach' });
+    });
+
+    // 시작 시 확인은 렌더러가 준비된 뒤 직접 호출한다(check-update). 이후 30분마다 재확인.
+    updateTimer = setInterval(runUpdateCheck, UPDATE_CHECK_INTERVAL);
+  });
+}
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('before-quit', () => { if (updateTimer) clearInterval(updateTimer); });
@@ -52,7 +68,13 @@ ipcMain.handle('check-update', () => runUpdateCheck());
 ipcMain.handle('apply-update', async () => {
   const res = await updater.applyUpdate();
   if (res.ok && res.restart) {
-    setTimeout(() => { app.relaunch(); app.exit(0); }, 400);
+    setTimeout(() => {
+      // relaunch는 "현재 인스턴스가 종료될 때" 새 인스턴스를 띄우므로 락이 겹칠 수 있다.
+      // 미리 해제해 두어야 재시작된 인스턴스가 중복으로 판단되어 즉시 종료되지 않는다.
+      app.releaseSingleInstanceLock();
+      app.relaunch();
+      app.exit(0);
+    }, 400);
   }
   return res;
 });

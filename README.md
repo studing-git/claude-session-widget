@@ -22,11 +22,51 @@ Automated access to claude.ai의 자동 접근은 Anthropic의 서비스 이용�
 - Node.js v18 이상
 - npm
 
-### 설치
+### 자동 설치 (Windows, 권장)
+
+PowerShell에서 아래 한 줄을 실행하면 필수 구성 요소 확인부터 바로가기 생성까지 안내에 따라 진행됩니다.
+
+```powershell
+irm https://raw.githubusercontent.com/studing-git/claude-session-widget/main/install.ps1 | iex
+```
+
+설치 스크립트가 하는 일:
+1. **git / Node.js(npm) 확인** — 없으면 `winget`으로 설치할지 물어봅니다 (동의 없이 설치하지 않습니다). `winget`이 없으면 공식 다운로드 주소를 안내합니다.
+2. **설치 경로 선택** — 그냥 Enter를 누르면 `%USERPROFILE%\claude-session-widget`에 설치합니다.
+3. **저장소 clone + `npm install`** — 이미 설치된 폴더면 최신으로 갱신만 합니다.
+4. **바탕화면 바로가기 생성 여부 확인**
+
+보호된 위치(`C:\Program Files` 등)를 직접 지정하면 관리자 권한으로 다시 실행할지 물어봅니다(UAC).
+
+옵션:
+```powershell
+# 경로를 미리 지정하고 모든 확인을 자동 승인 (무인 설치)
+.\install.ps1 -InstallPath 'D:\apps\claude-widget' -Yes
+
+# 바로가기 없이 설치
+.\install.ps1 -NoShortcut
+```
+
+> 이미 있는 폴더가 비어 있지 않으면 덮어쓰지 않고 중단합니다.
+
+#### 설치 위치와 자동 업데이트
+
+위젯은 자기 폴더에서 `git pull`을 실행해 스스로 업데이트합니다. 따라서 **설치 폴더는 위젯을 실행하는 사용자가 쓸 수 있어야 합니다.**
+
+기본값인 사용자 폴더(`%USERPROFILE%\claude-session-widget`)는 이 조건을 만족하므로 아무 설정 없이 자동 업데이트가 동작합니다.
+
+`C:\Program Files` 아래처럼 관리자만 쓸 수 있는 위치를 직접 지정하면, 일반 권한으로 실행되는 위젯이 자기 폴더에 쓸 수 없어 **업데이트가 실패합니다.** 이 경우 설치 스크립트가 경고하고 두 가지 중에 고르게 합니다.
+
+- **사용자 폴더에 설치 (권장)** — 권한 조정 없이 자동 업데이트가 동작합니다.
+- **설치 폴더에 쓰기 권한 부여** — 자동 업데이트는 되지만, 보호된 위치에 사용자가 쓸 수 있는 폴더가 생기므로 보안상 권장하지 않습니다. 기본값은 "부여 안 함"입니다.
+
+권한을 부여하지 않고 보호된 위치에 설치했다면, 업데이트할 때 런처를 관리자 권한으로 실행해야 합니다.
+
+### 수동 설치
 
 ```bash
-git clone https://github.com/studing-git/claude-session-weget.git
-cd claude-session-weget
+git clone https://github.com/studing-git/claude-session-widget.git
+cd claude-session-widget
 npm install
 ```
 
@@ -152,6 +192,8 @@ Register-ScheduledTask -TaskName 'ClaudeUsageWidget' -Action $action -Trigger $t
 
 ### 특징
 - 항상 최상위(Always on Top) 표시
+- 중복 실행 방지: 이미 실행 중이면 새 창을 띄우지 않고 기존 창을 앞으로 가져옴
+- 화면 모서리에 여백 없이 밀착
 - 모드 전환 가능 (일반 ↔ 미니)
 - 화면 모서리 자동 스냅 (드래그/모드 전환 시)
 - 네트워크 오류 자동 재시도 (Progressive Backoff)
@@ -187,9 +229,36 @@ Register-ScheduledTask -TaskName 'ClaudeUsageWidget' -Action $action -Trigger $t
 
 ---
 
+## 문제 해결
+
+### `Unable to move the cache: 액세스가 거부되었습니다 (0x5)` / `Gpu Cache Creation failed`
+
+위젯이 두 개 이상 동시에 실행되어 같은 캐시 디렉터리를 다툴 때 나타납니다. 중복 실행 방지가 적용된 이후로는 두 번째 실행이 기존 창을 앞으로 가져오고 스스로 종료하므로 발생하지 않습니다.
+
+이미 여러 개가 떠 있다면 모두 종료 후 다시 실행하세요.
+```powershell
+Get-Process electron -ErrorAction SilentlyContinue | Stop-Process
+```
+
+### `fatal: not a git repository`
+
+zip 등으로 파일만 받은 폴더입니다. 자동 업데이트는 git 저장소에서만 동작합니다. 제자리에서 전환하려면(추적 파일이 덮어써지므로 직접 수정한 내용은 먼저 백업):
+```powershell
+git init
+git remote add origin https://github.com/studing-git/claude-session-widget.git
+git fetch origin main
+git checkout -f -B main origin/main
+```
+
 ## 변경 이력
 
 ### 2026-08-21
+- **설치 스크립트 추가**: `install.ps1` — git/Node.js 확인 및 winget 설치, 설치 경로 선택(기본 `%USERPROFILE%\claude-session-widget`), 보호된 위치 지정 시 UAC 승격, 바탕화면 바로가기 생성
+- **모서리 여백 제거**: 스냅 시 화면 가장자리에 밀착 (`SNAP_MARGIN` 10 → 0)
+- **런처 이식성**: `launch.ps1`이 `pwsh` 하드코딩 대신 실행 중인 PowerShell을 사용 (Windows PowerShell 5.1 지원)
+- **중복 실행 방지**: 두 인스턴스가 같은 캐시를 다투며 발생하던 `Unable to move the cache` 오류 해소
+- **런처 출력 정리**: `git pull`에 `--quiet` 적용 (실패 시 오류는 그대로 표시)
+- **PowerShell 지원**: `start.ps1` / `launch.ps1` 추가
 - **자동 업데이트 추가**: 실행 시 `git pull`, 실행 중에는 30분마다 새 커밋 감지 → ⬆ 배지 클릭으로 업데이트 후 자동 재시작
 - **파싱 수정**: claude.ai 사용량 페이지 리뉴얼 대응 (`[role="progressbar"]` → `[role="meter"]`, 라벨 기반 카드 매핑, 플랜·크레딧·잔액 선택자 갱신)
 
