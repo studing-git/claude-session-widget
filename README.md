@@ -47,9 +47,47 @@ start.bat  # 더블클릭
 launch.vbs  # 더블클릭
 ```
 
-#### 4. Windows 시작 시 자동 실행
+#### 4. PowerShell로 실행
+
+PowerShell 7(`pwsh`) 기준입니다. `.ps1`은 기본 실행 정책에서 차단될 수 있어 `-ExecutionPolicy Bypass`를 함께 씁니다.
+
+**콘솔에서 실행** (로그 확인 가능, 창을 닫으면 위젯도 종료됨)
+```powershell
+cd C:\경로\claude-session-widget
+pwsh -ExecutionPolicy Bypass -File .\start.ps1
+```
+
+**백그라운드 실행** (콘솔 없이, `launch.vbs`와 동일한 동작)
+```powershell
+pwsh -ExecutionPolicy Bypass -File .\launch.ps1
+```
+
+**스크립트 없이 한 줄로**
+```powershell
+cd C:\경로\claude-session-widget; git pull --ff-only; npm start
+```
+> `;`로 연결하면 `git pull`이 실패해도(오프라인 등) 위젯은 그대로 실행됩니다.
+> `&&`는 PowerShell 7 이상에서만 동작하며, pull 실패 시 실행이 중단됩니다.
+
+#### 5. Windows 시작 시 자동 실행
+
+**방법 A — 시작 폴더**
 1. `Win + R` → `shell:startup` 입력
-2. 열린 폴더에 `launch.vbs` 바로가기 추가
+2. 열린 폴더에 `launch.vbs` 바로가기 추가 (PowerShell을 쓰려면 아래 대상으로 바로가기 생성)
+   ```
+   pwsh -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "C:\경로\claude-session-widget\launch.ps1"
+   ```
+
+**방법 B — 작업 스케줄러 (PowerShell로 등록)**
+```powershell
+$dir    = 'C:\경로\claude-session-widget'
+$action = New-ScheduledTaskAction -Execute 'pwsh' `
+          -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$dir\launch.ps1`"" `
+          -WorkingDirectory $dir
+$trigger = New-ScheduledTaskTrigger -AtLogOn
+Register-ScheduledTask -TaskName 'ClaudeUsageWidget' -Action $action -Trigger $trigger
+```
+해제하려면 `Unregister-ScheduledTask -TaskName 'ClaudeUsageWidget'`
 
 ---
 
