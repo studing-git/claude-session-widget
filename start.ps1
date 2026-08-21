@@ -9,7 +9,7 @@ Set-Location -LiteralPath $PSScriptRoot
 # 실행 전 최신 버전 받기. 실패(오프라인·로컬 변경사항 등)해도 앱은 그대로 실행한다.
 if (Get-Command git -ErrorAction SilentlyContinue) {
     Write-Host '[update] 최신 버전 확인 중...' -ForegroundColor DarkGray
-    git pull --ff-only
+    git pull --ff-only --quiet
     if ($LASTEXITCODE -ne 0) {
         Write-Host '[update] 건너뜀 — 오프라인이거나 로컬 변경사항이 있습니다' -ForegroundColor Yellow
     }

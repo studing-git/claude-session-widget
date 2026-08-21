@@ -8,7 +8,7 @@ $dir = $PSScriptRoot
 $env:ELECTRON_DISABLE_SECURITY_WARNINGS = 'true'
 
 # git pull 실패해도 앱은 실행되도록 ; 로 연결
-$cmd = 'git pull --ff-only; npm start'
+$cmd = 'git pull --ff-only --quiet; npm start'
 
 Start-Process -FilePath 'pwsh' `
               -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-Command', $cmd `
