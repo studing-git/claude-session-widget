@@ -27,10 +27,9 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$RepoUrl     = 'https://github.com/studing-git/claude-session-widget.git'
-$AppName     = 'Claude 사용량 위젯'
-$InstallRoot = 'C:\Program Files\Devdragon'
-$FolderName  = 'claude-session-widget'
+$RepoUrl    = 'https://github.com/studing-git/claude-session-widget.git'
+$AppName    = 'Claude 사용량 위젯'
+$FolderName = 'claude-session-widget'
 
 function Write-Step  ([string] $Message) { Write-Host ''; Write-Host "== $Message" -ForegroundColor Cyan }
 function Write-Ok    ([string] $Message) { Write-Host "   $Message" -ForegroundColor Green }
@@ -209,7 +208,9 @@ if (-not $hasGit -or -not $hasNpm) {
 
 Write-Step '설치 경로'
 if (-not $InstallPath) {
-    $default = "$InstallRoot\$FolderName"
+    # 사용자 폴더가 기본값이다. 보호된 위치(Program Files 등)에 설치하면 위젯이
+    # 자기 폴더에 git pull을 할 수 없어 자동 업데이트가 동작하지 않는다.
+    $default = Join-Path $HOME $FolderName
     if ($Yes) {
         $InstallPath = $default
     } else {
@@ -270,12 +271,18 @@ Write-Ok '완료'
 
 # 관리자 권한으로 Program Files에 설치한 경우, 위젯을 일반 권한으로 실행하면
 # 자기 폴더에 git pull을 할 수 없어 자동 업데이트가 실패한다.
-Write-Step '자동 업데이트 권한'
+Write-Step '자동 업데이트 확인'
+$user = if ($GrantUser) { $GrantUser } else { [Security.Principal.WindowsIdentity]::GetCurrent().Name }
+
 if (Test-Administrator) {
-    $user = if ($GrantUser) { $GrantUser } else { [Security.Principal.WindowsIdentity]::GetCurrent().Name }
-    Write-Note "$InstallPath 는 관리자만 쓸 수 있어, 일반 권한으로 실행하면 자동 업데이트가 실패합니다."
-    Write-Note "이 폴더에 한해 $user 에게 수정 권한을 주면 위젯이 스스로 업데이트할 수 있습니다."
-    if (Confirm-Step '쓰기 권한을 부여할까요?' $true) {
+    # 관리자 권한으로 보호된 위치에 설치한 경우. 위젯은 일반 권한으로 실행되므로
+    # 자기 폴더에 git pull을 할 수 없어 자동 업데이트가 실패한다.
+    Write-Note "$InstallPath 는 관리자만 쓸 수 있는 위치입니다."
+    Write-Note '위젯은 일반 권한으로 실행되므로 이대로는 자동 업데이트가 실패합니다.'
+    Write-Note "권장: 사용자 폴더($(Join-Path $HOME $FolderName))에 설치하면 권한 조정 없이 동작합니다."
+    Write-Note '이 폴더에 쓰기 권한을 주면 자동 업데이트가 되지만, 보호된 위치에'
+    Write-Note '사용자가 쓸 수 있는 폴더가 생기므로 보안상 권장하지 않습니다.'
+    if (Confirm-Step "그래도 $user 에게 쓰기 권한을 부여할까요?" $false) {
         $granted = Grant-UpdatePermission $InstallPath $user
         Write-Ok "$granted 에게 수정 권한 부여됨 — 자동 업데이트가 동작합니다"
     } else {
