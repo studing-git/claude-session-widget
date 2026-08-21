@@ -32,8 +32,7 @@ app.whenReady().then(() => {
     if (input.key === 'F12') mainWindow.webContents.openDevTools({ mode: 'detach' });
   });
 
-  // 시작 직후 한 번, 이후 30분마다 새 커밋 확인
-  setTimeout(runUpdateCheck, 5000);
+  // 시작 시 확인은 렌더러가 준비된 뒤 직접 호출한다(check-update). 이후 30분마다 재확인.
   updateTimer = setInterval(runUpdateCheck, UPDATE_CHECK_INTERVAL);
 });
 

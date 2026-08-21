@@ -41,6 +41,14 @@ function npmInstall() {
   });
 }
 
+// 주기적 확인과 사용자의 업데이트 적용이 겹쳐 git이 동시에 돌지 않게 직렬화한다
+let queue = Promise.resolve();
+function serialize(fn) {
+  const run = queue.then(fn, fn);
+  queue = run.catch(() => {});
+  return run;
+}
+
 async function isGitCheckout() {
   if (!fs.existsSync(path.join(REPO_DIR, '.git'))) return false;
   try {
@@ -57,7 +65,7 @@ async function getBranch() {
 }
 
 // { available, behind, branch, local, remote, subject } 또는 { available:false, reason }
-async function checkForUpdate() {
+async function checkForUpdateImpl() {
   if (!(await isGitCheckout())) {
     return { available: false, reason: 'not_git' };
   }
@@ -83,7 +91,7 @@ async function checkForUpdate() {
 }
 
 // { ok:true, from, to } 또는 { ok:false, reason, message }
-async function applyUpdate() {
+async function applyUpdateImpl() {
   if (!(await isGitCheckout())) return { ok: false, reason: 'not_git' };
   try {
     const branch = await getBranch();
@@ -115,5 +123,8 @@ async function applyUpdate() {
     return { ok: false, reason: 'error', message: e.detail || e.message };
   }
 }
+
+const checkForUpdate = () => serialize(checkForUpdateImpl);
+const applyUpdate    = () => serialize(applyUpdateImpl);
 
 module.exports = { checkForUpdate, applyUpdate, isGitCheckout };
