@@ -97,8 +97,9 @@ async function applyUpdateImpl() {
     const branch = await getBranch();
     if (!branch) return { ok: false, reason: 'detached', message: '브랜치를 확인할 수 없습니다' };
 
-    // 로컬 수정본을 덮어쓰지 않는다
-    const dirty = await git(['status', '--porcelain']);
+    // 로컬 수정본을 덮어쓰지 않는다.
+    // 추적되지 않는 파일(메모·스크린샷 등)은 업데이트를 막지 않는다 — 충돌이 나면 merge가 알려준다.
+    const dirty = await git(['status', '--porcelain', '--untracked-files=no']);
     if (dirty) return { ok: false, reason: 'dirty', message: '로컬에 커밋되지 않은 변경사항이 있습니다' };
 
     await git(['fetch', '--quiet', 'origin', branch]);
