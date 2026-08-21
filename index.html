@@ -22,6 +22,13 @@ html,body{overflow:hidden;background:#1a1a1a;color:#e8e8e8;font-family:-apple-sy
 .tip::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 7px);left:50%;transform:translateX(-50%);background:#2c2c2c;color:#ccc;font-size:10px;padding:4px 9px;border-radius:5px;white-space:nowrap;pointer-events:none;opacity:0;transition:opacity .15s;border:1px solid #3a3a3a;z-index:99;}
 .tip:hover::after{opacity:1;}
 
+/* 업데이트 배지 */
+.upd{display:none;align-items:center;gap:4px;background:#d97706;color:#fff;border:none;border-radius:5px;cursor:pointer;font-family:inherit;font-size:9px;font-weight:600;padding:3px 7px;line-height:1;}
+.upd:hover{background:#b45309;}
+.upd:disabled{opacity:.6;cursor:progress;}
+.upd.show{display:inline-flex;}
+.upd-mini{padding:2px 5px;font-size:8px;}
+
 @keyframes spin{to{transform:rotate(360deg);}}
 .spinner{display:inline-block;border:2px solid #2e2e2e;border-top-color:#d97706;border-radius:50%;animation:spin .7s linear infinite;}
 .state-box{text-align:center;color:#666;line-height:1.7;width:100%;}
@@ -67,6 +74,7 @@ html,body{overflow:hidden;background:#1a1a1a;color:#e8e8e8;font-family:-apple-sy
       <span style="font-size:10px;color:#555;" id="planLabel"></span>
     </div>
     <div style="display:flex;align-items:center;gap:4px;">
+      <button class="upd" id="btnUpdateFull" title="새 버전으로 업데이트 후 재시작">⬆ 업데이트</button>
       <button class="iBtn" id="btnRefreshFull" title="새로고침">↻</button>
       <button class="iBtn" id="btnToggle" title="미니 모드">⊟</button>
       <div style="display:flex;gap:5px;margin-left:4px;">
@@ -95,6 +103,7 @@ html,body{overflow:hidden;background:#1a1a1a;color:#e8e8e8;font-family:-apple-sy
       <span style="font-size:10px;font-weight:600;color:#aaa;">Claude</span>
     </div>
     <div style="display:flex;align-items:center;gap:3px;">
+      <button class="upd upd-mini" id="btnUpdateMini" title="새 버전으로 업데이트 후 재시작">⬆</button>
       <button class="iBtn" id="btnRefreshMini" style="font-size:13px;">↻</button>
       <button class="iBtn" id="btnExpand" title="확대">⊞</button>
     </div>
@@ -145,6 +154,41 @@ document.getElementById('btnExpand').addEventListener('click', () => switchMode(
 document.getElementById('btnRefreshFull').addEventListener('click', () => { resetRetry(); loadData(true); });
 document.getElementById('btnRefreshMini').addEventListener('click', () => { resetRetry(); loadData(true); });
 ipcRenderer.on('login-done', () => loadData(true));
+
+/* ── 자동 업데이트 ── */
+let updateInfo = null;
+const updBtns = [document.getElementById('btnUpdateFull'), document.getElementById('btnUpdateMini')];
+
+function showUpdateBadge(info) {
+  updateInfo = info;
+  const tip = `새 버전 ${info.behind}개 커밋${info.subject ? ` · ${info.subject}` : ''}\n클릭하면 업데이트 후 재시작합니다`;
+  updBtns.forEach(b => { b.classList.add('show'); b.title = tip; });
+  resizeToContent();
+}
+
+async function applyUpdate() {
+  updBtns.forEach(b => { b.disabled = true; });
+  document.getElementById('btnUpdateFull').textContent = '⬆ 업데이트 중…';
+  setFooter('업데이트 중…');
+  const res = await ipcRenderer.invoke('apply-update');
+  if (res.ok) {
+    setFooter(res.restart ? '재시작 중…' : '이미 최신 버전입니다');
+    if (!res.restart) {
+      updBtns.forEach(b => { b.classList.remove('show'); b.disabled = false; });
+      document.getElementById('btnUpdateFull').textContent = '⬆ 업데이트';
+    }
+    return;
+  }
+  const msg = res.reason === 'dirty' ? '로컬 변경사항이 있어 업데이트를 건너뜁니다'
+            : res.reason === 'not_git' ? 'git 저장소가 아니라 업데이트할 수 없습니다'
+            : `업데이트 실패: ${res.message || ''}`;
+  setFooter(msg);
+  updBtns.forEach(b => { b.disabled = false; b.title = msg; });
+  document.getElementById('btnUpdateFull').textContent = '⬆ 업데이트';
+}
+
+updBtns.forEach(b => b.addEventListener('click', applyUpdate));
+ipcRenderer.on('update-available', (e, info) => showUpdateBadge(info));
 
 function switchMode(mini) {
   isMini = mini;
