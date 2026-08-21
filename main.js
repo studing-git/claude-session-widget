@@ -1,10 +1,12 @@
 process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true';
 
 const { app, BrowserWindow, BrowserView, ipcMain, session, screen } = require('electron');
+const updater = require('./updater');
 
 const SNAP_MARGIN = 10;
+const UPDATE_CHECK_INTERVAL = 30 * 60 * 1000;
 
-let mainWindow, fetchView;
+let mainWindow, fetchView, updateTimer;
 
 function getSnapPosition(w, h, snapX, snapY) {
   const [wx, wy] = mainWindow.getPosition();
@@ -29,9 +31,31 @@ app.whenReady().then(() => {
   mainWindow.webContents.on('before-input-event', (e, input) => {
     if (input.key === 'F12') mainWindow.webContents.openDevTools({ mode: 'detach' });
   });
+
+  // 시작 시 확인은 렌더러가 준비된 뒤 직접 호출한다(check-update). 이후 30분마다 재확인.
+  updateTimer = setInterval(runUpdateCheck, UPDATE_CHECK_INTERVAL);
 });
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+app.on('before-quit', () => { if (updateTimer) clearInterval(updateTimer); });
+
+async function runUpdateCheck() {
+  const res = await updater.checkForUpdate();
+  if (res.available && mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('update-available', res);
+  }
+  return res;
+}
+
+ipcMain.handle('check-update', () => runUpdateCheck());
+
+ipcMain.handle('apply-update', async () => {
+  const res = await updater.applyUpdate();
+  if (res.ok && res.restart) {
+    setTimeout(() => { app.relaunch(); app.exit(0); }, 400);
+  }
+  return res;
+});
 
 ipcMain.on('move-window', (e, { dx, dy }) => {
   const [x, y] = mainWindow.getPosition();

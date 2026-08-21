@@ -22,6 +22,13 @@ html,body{overflow:hidden;background:#1a1a1a;color:#e8e8e8;font-family:-apple-sy
 .tip::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 7px);left:50%;transform:translateX(-50%);background:#2c2c2c;color:#ccc;font-size:10px;padding:4px 9px;border-radius:5px;white-space:nowrap;pointer-events:none;opacity:0;transition:opacity .15s;border:1px solid #3a3a3a;z-index:99;}
 .tip:hover::after{opacity:1;}
 
+/* 업데이트 배지 */
+.upd{display:none;align-items:center;gap:4px;background:#d97706;color:#fff;border:none;border-radius:5px;cursor:pointer;font-family:inherit;font-size:9px;font-weight:600;padding:3px 7px;line-height:1;}
+.upd:hover{background:#b45309;}
+.upd:disabled{opacity:.6;cursor:progress;}
+.upd.show{display:inline-flex;}
+.upd-mini{padding:2px 5px;font-size:8px;}
+
 @keyframes spin{to{transform:rotate(360deg);}}
 .spinner{display:inline-block;border:2px solid #2e2e2e;border-top-color:#d97706;border-radius:50%;animation:spin .7s linear infinite;}
 .state-box{text-align:center;color:#666;line-height:1.7;width:100%;}
@@ -67,6 +74,7 @@ html,body{overflow:hidden;background:#1a1a1a;color:#e8e8e8;font-family:-apple-sy
       <span style="font-size:10px;color:#555;" id="planLabel"></span>
     </div>
     <div style="display:flex;align-items:center;gap:4px;">
+      <button class="upd" id="btnUpdateFull" title="새 버전으로 업데이트 후 재시작">⬆ 업데이트</button>
       <button class="iBtn" id="btnRefreshFull" title="새로고침">↻</button>
       <button class="iBtn" id="btnToggle" title="미니 모드">⊟</button>
       <div style="display:flex;gap:5px;margin-left:4px;">
@@ -95,6 +103,7 @@ html,body{overflow:hidden;background:#1a1a1a;color:#e8e8e8;font-family:-apple-sy
       <span style="font-size:10px;font-weight:600;color:#aaa;">Claude</span>
     </div>
     <div style="display:flex;align-items:center;gap:3px;">
+      <button class="upd upd-mini" id="btnUpdateMini" title="새 버전으로 업데이트 후 재시작">⬆</button>
       <button class="iBtn" id="btnRefreshMini" style="font-size:13px;">↻</button>
       <button class="iBtn" id="btnExpand" title="확대">⊞</button>
     </div>
@@ -114,7 +123,7 @@ html,body{overflow:hidden;background:#1a1a1a;color:#e8e8e8;font-family:-apple-sy
 <script>
 const {ipcRenderer} = require('electron');
 
-let isMini = false, cache = null, timerInterval = null;
+let isMini = false, cache = null, timerInterval = null, updating = false;
 let snapX = 'right', snapY = 'top';
 let retryCount = 0, retryTimeout = null, countInterval = null;
 const RETRY_DELAYS = [30, 60, 120, 300];
@@ -145,6 +154,60 @@ document.getElementById('btnExpand').addEventListener('click', () => switchMode(
 document.getElementById('btnRefreshFull').addEventListener('click', () => { resetRetry(); loadData(true); });
 document.getElementById('btnRefreshMini').addEventListener('click', () => { resetRetry(); loadData(true); });
 ipcRenderer.on('login-done', () => loadData(true));
+
+/* ── 자동 업데이트 ── */
+const updBtns = [document.getElementById('btnUpdateFull'), document.getElementById('btnUpdateMini')];
+const btnUpdFull = document.getElementById('btnUpdateFull');
+
+function showUpdateBadge(info) {
+  const tip = `새 버전 ${info.behind}개 커밋${info.subject ? ` · ${info.subject}` : ''}\n클릭하면 업데이트 후 재시작합니다`;
+  updBtns.forEach(b => { b.classList.add('show'); b.title = tip; });
+  resizeToContent();
+}
+
+function endUpdateState(msg) {
+  updBtns.forEach(b => { b.disabled = false; b.title = msg; });
+  btnUpdFull.textContent = '⬆ 업데이트';
+  setFooter(msg);
+  // 메시지를 잠시 보여준 뒤 평소 동작(경과 시간 표시·데이터 갱신)을 재개한다
+  setTimeout(() => {
+    updating = false;
+    startTimer();
+    if (!cache) loadData(true);
+  }, 5000);
+}
+
+async function applyUpdate() {
+  if (updating) return;
+  updating = true;
+  updBtns.forEach(b => { b.disabled = true; });
+  btnUpdFull.textContent = '⬆ 업데이트 중…';
+  // 경과 시간 타이머와 재시도 카운트다운이 상태 메시지를 덮어쓰지 않도록 멈춘다
+  stopTimer();
+  resetRetry();
+  setFooter('업데이트 중…');
+  const res = await ipcRenderer.invoke('apply-update');
+  if (res.ok) {
+    if (res.restart) {
+      setFooter('재시작 중…'); // 곧 앱이 재시작되므로 타이머를 되살리지 않는다
+      return;
+    }
+    updBtns.forEach(b => b.classList.remove('show'));
+    endUpdateState('이미 최신 버전입니다');
+    return;
+  }
+  const raw = (res.message || '').split('\n')[0].slice(0, 60);
+  endUpdateState(
+    res.reason === 'dirty'   ? '로컬 변경사항이 있어 업데이트를 건너뜁니다' :
+    res.reason === 'not_git' ? 'git 저장소가 아니라 업데이트할 수 없습니다' :
+    `업데이트 실패: ${raw}`
+  );
+}
+
+updBtns.forEach(b => b.addEventListener('click', applyUpdate));
+ipcRenderer.on('update-available', (e, info) => showUpdateBadge(info));
+// 시작 시 1회 확인 (리스너 등록이 끝난 뒤이므로 이벤트 유실 없음)
+ipcRenderer.invoke('check-update').then(res => { if (res && res.available) showUpdateBadge(res); });
 
 function switchMode(mini) {
   isMini = mini;
@@ -413,6 +476,7 @@ function parseHTML(html) {
 }
 
 async function loadData(force = false) {
+  if (updating) return; // 업데이트·재시작 중에는 데이터 갱신을 건드리지 않는다
   setLoading(true);
   if (!force && cache && (Date.now() - cache.fetched_at) < 5 * 60 * 1000) {
     isMini ? renderMini(cache) : renderFull(cache);
