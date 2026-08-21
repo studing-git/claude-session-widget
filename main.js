@@ -3,7 +3,7 @@ process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true';
 const { app, BrowserWindow, BrowserView, ipcMain, session, screen } = require('electron');
 const updater = require('./updater');
 
-const SNAP_MARGIN = 10;
+const SNAP_MARGIN = 0;
 const UPDATE_CHECK_INTERVAL = 30 * 60 * 1000;
 
 let mainWindow, fetchView, updateTimer;

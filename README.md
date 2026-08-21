@@ -22,11 +22,36 @@ Automated access to claude.ai의 자동 접근은 Anthropic의 서비스 이용�
 - Node.js v18 이상
 - npm
 
-### 설치
+### 자동 설치 (Windows, 권장)
+
+PowerShell에서 아래 한 줄을 실행하면 필수 구성 요소 확인부터 바로가기 생성까지 안내에 따라 진행됩니다.
+
+```powershell
+irm https://raw.githubusercontent.com/studing-git/claude-session-widget/main/install.ps1 | iex
+```
+
+설치 스크립트가 하는 일:
+1. **git / Node.js(npm) 확인** — 없으면 `winget`으로 설치할지 물어봅니다 (동의 없이 설치하지 않습니다). `winget`이 없으면 공식 다운로드 주소를 안내합니다.
+2. **설치 경로 선택** — 그냥 Enter를 누르면 `%USERPROFILE%\claude-session-widget`에 설치합니다.
+3. **저장소 clone + `npm install`** — 이미 설치된 폴더면 최신으로 갱신만 합니다.
+4. **바탕화면 바로가기 생성 여부 확인**
+
+옵션:
+```powershell
+# 경로를 미리 지정하고 모든 확인을 자동 승인 (무인 설치)
+.\install.ps1 -InstallPath 'D:\apps\claude-widget' -Yes
+
+# 바로가기 없이 설치
+.\install.ps1 -NoShortcut
+```
+
+> 이미 있는 폴더가 비어 있지 않으면 덮어쓰지 않고 중단합니다.
+
+### 수동 설치
 
 ```bash
-git clone https://github.com/studing-git/claude-session-weget.git
-cd claude-session-weget
+git clone https://github.com/studing-git/claude-session-widget.git
+cd claude-session-widget
 npm install
 ```
 
@@ -153,6 +178,7 @@ Register-ScheduledTask -TaskName 'ClaudeUsageWidget' -Action $action -Trigger $t
 ### 특징
 - 항상 최상위(Always on Top) 표시
 - 중복 실행 방지: 이미 실행 중이면 새 창을 띄우지 않고 기존 창을 앞으로 가져옴
+- 화면 모서리에 여백 없이 밀착
 - 모드 전환 가능 (일반 ↔ 미니)
 - 화면 모서리 자동 스냅 (드래그/모드 전환 시)
 - 네트워크 오류 자동 재시도 (Progressive Backoff)
@@ -212,6 +238,9 @@ git checkout -f -B main origin/main
 ## 변경 이력
 
 ### 2026-08-21
+- **설치 스크립트 추가**: `install.ps1` — git/Node.js 확인 및 winget 설치, 설치 경로 선택, 바탕화면 바로가기 생성
+- **모서리 여백 제거**: 스냅 시 화면 가장자리에 밀착 (`SNAP_MARGIN` 10 → 0)
+- **런처 이식성**: `launch.ps1`이 `pwsh` 하드코딩 대신 실행 중인 PowerShell을 사용 (Windows PowerShell 5.1 지원)
 - **중복 실행 방지**: 두 인스턴스가 같은 캐시를 다투며 발생하던 `Unable to move the cache` 오류 해소
 - **런처 출력 정리**: `git pull`에 `--quiet` 적용 (실패 시 오류는 그대로 표시)
 - **PowerShell 지원**: `start.ps1` / `launch.ps1` 추가
