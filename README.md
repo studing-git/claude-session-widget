@@ -135,7 +135,7 @@ Register-ScheduledTask -TaskName 'ClaudeUsageWidget' -Action $action -Trigger $t
 
 ### 기본 조작
 - **타이틀바 드래그**: 위젯 창 이동
-- **⊟ 버튼**: 미니 모드 전환 (680×280 ↔ 160×190)
+- **⊟ 버튼**: 미니 모드 전환 (580×약240 ↔ 144×약141)
 - **↻ 버튼**: 데이터 새로고침 (강제 갱신)
 - **⬆ 업데이트 버튼**: 새 버전이 있을 때만 표시 (아래 "자동 업데이트" 참고)
 - **─ 버튼**: 창 최소화
@@ -188,7 +188,7 @@ Register-ScheduledTask -TaskName 'ClaudeUsageWidget' -Action $action -Trigger $t
   - 🔴 빨강색 (80~100%): 임박함
 - **재설정 시간**: 각 제한이 초기화되는 시간 표시
 - **일반 모드**: 상세 정보 5개 카드 표시 (Claude Design 포함)
-- **미니 모드**: 세션·주간 2개 카드 표시
+- **미니 모드**: 세션·주간 2개 카드만 표시 (재설정 시각은 게이지 hover 시 툴팁으로 확인)
 
 ### 특징
 - 항상 최상위(Always on Top) 표시
@@ -253,6 +253,7 @@ git checkout -f -B main origin/main
 ## 변경 이력
 
 ### 2026-08-21
+- **미니 모드 축소**: 160×183 → 144×141. 재설정 텍스트를 화면에서 빼고(게이지 hover 시 툴팁으로 확인) 여백을 조임
 - **설치 스크립트 추가**: `install.ps1` — git/Node.js 확인 및 winget 설치, 설치 경로 선택(기본 `%USERPROFILE%\claude-session-widget`), 보호된 위치 지정 시 UAC 승격, 바탕화면 바로가기 생성
 - **모서리 여백 제거**: 스냅 시 화면 가장자리에 밀착 (`SNAP_MARGIN` 10 → 0)
 - **런처 이식성**: `launch.ps1`이 `pwsh` 하드코딩 대신 실행 중인 PowerShell을 사용 (Windows PowerShell 5.1 지원)
