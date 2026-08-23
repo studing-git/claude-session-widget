@@ -50,17 +50,21 @@ html,body{overflow:hidden;background:#1a1a1a;color:#e8e8e8;font-family:-apple-sy
 .footer-full{display:flex;justify-content:flex-start;align-items:center;padding:8px 16px 12px;border-top:1px solid #2a2a2a;}
 
 /* ── 미니 모드 160px ── */
-#uiMini{width:160px;display:none;}
-.tb-mini{display:flex;justify-content:space-between;align-items:center;padding:7px 10px 6px;border-bottom:1px solid #2a2a2a;cursor:move;}
-.grid-mini{display:grid;grid-template-columns:1fr 1px 1fr;padding:10px 8px 8px;}
+#uiMini{width:144px;display:none;}
+.tb-mini{display:flex;justify-content:space-between;align-items:center;padding:6px 9px 5px;border-bottom:1px solid #2a2a2a;cursor:move;}
+.grid-mini{display:grid;grid-template-columns:1fr 1px 1fr;padding:8px 6px 7px;}
 .vline{background:#2a2a2a;align-self:stretch;margin:4px 0;}
-.ring-item-mini{display:flex;flex-direction:column;align-items:center;gap:5px;padding:4px 6px;}
+.ring-item-mini{display:flex;flex-direction:column;align-items:center;gap:4px;padding:2px 4px;}
 .ring-wrap-mini{position:relative;width:52px;height:52px;cursor:default;}
 .ring-wrap-mini svg{width:52px;height:52px;display:block;}
 .rpct-mini{font-size:12px;font-weight:700;color:#f0f0f0;}
 .mlabel{font-size:9px;color:#888;text-align:center;line-height:1.3;}
-.mreset{font-size:8px;color:#666;text-align:center;line-height:1.5;}
-.footer-mini{display:flex;justify-content:center;align-items:center;padding:5px 10px 8px;border-top:1px solid #2a2a2a;}
+.footer-mini{display:flex;justify-content:center;align-items:center;padding:4px 10px 6px;border-top:1px solid #2a2a2a;}
+
+/* 미니 모드는 창이 좁아 기본 툴팁이 창 밖으로 잘린다.
+   재설정 정보를 볼 수 있는 유일한 수단이므로 창 폭에 맞춰 고정 배치한다. */
+#uiMini .tip::after{position:fixed;left:5px;right:5px;top:30px;bottom:auto;transform:none;
+  white-space:normal;text-align:center;line-height:1.4;z-index:100;}
 </style>
 </head>
 <body>
@@ -127,6 +131,8 @@ let isMini = false, cache = null, timerInterval = null, updating = false;
 let snapX = 'right', snapY = 'top';
 let retryCount = 0, retryTimeout = null, countInterval = null;
 const RETRY_DELAYS = [30, 60, 120, 300];
+// CSS의 #uiMini / #uiFull 너비와 반드시 일치해야 한다
+const MINI_WIDTH = 144, FULL_WIDTH = 580;
 
 function initDrag(el) {
   let drag = false, sx, sy;
@@ -213,7 +219,7 @@ function switchMode(mini) {
   isMini = mini;
   document.getElementById('uiFull').style.display = mini ? 'none' : 'block';
   document.getElementById('uiMini').style.display = mini ? 'block' : 'none';
-  ipcRenderer.send('set-size', mini ? { w: 160, snapX, snapY } : { w: 580, snapX, snapY });
+  ipcRenderer.send('set-size', mini ? { w: MINI_WIDTH, snapX, snapY } : { w: FULL_WIDTH, snapX, snapY });
   if (cache) mini ? renderMini(cache) : renderFull(cache);
   else resizeToContent();
 }
@@ -280,7 +286,7 @@ function renderMini(data) {
       <div class="ring-wrap-mini tip" data-tip="${tip || '재설정 정보 없음'}">
         ${makeRingMini(pct)}<div class="ring-center"><span class="rpct-mini">${pct}%</span></div>
       </div>
-      <div class="mlabel">${label}</div><div class="mreset">${reset || ''}</div>
+      <div class="mlabel">${label}</div>
     </div>`;
   };
   document.getElementById('miniContent').innerHTML =
