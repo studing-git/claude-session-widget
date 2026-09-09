@@ -1,12 +1,20 @@
 process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true';
 
 const { app, BrowserWindow, BrowserView, ipcMain, session, screen } = require('electron');
-const updater = require('./updater');
+const updater   = require('./updater');
+const providers = require('./providers');
 
 const SNAP_MARGIN = 0;
 const UPDATE_CHECK_INTERVAL = 30 * 60 * 1000;
 
-let mainWindow, fetchView, updateTimer;
+let mainWindow, updateTimer;
+
+// Electron 기본 UA에는 앱 이름과 "Electron/xx" 토큰이 들어간다.
+// Google은 이런 UA를 임베디드 브라우저로 보고 로그인을 거부할 수 있으므로
+// 평범한 Chrome UA로 맞춘다.
+app.userAgentFallback = app.userAgentFallback
+  .replace(new RegExp('\\s*' + app.getName().replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\/[\\d.]+', 'i'), '')
+  .replace(/\s*Electron\/[\d.]+/i, '');
 
 function getSnapPosition(w, h, snapX, snapY) {
   const [wx, wy] = mainWindow.getPosition();
@@ -127,74 +135,105 @@ ipcMain.handle('snap-to-edge', () => {
   return { snapX, snapY };
 });
 
-ipcMain.handle('fetch-usage', async () => {
+// 로그인 페이지로 튕겼는지 판별. 제공자마다 로그인 URL 모양이 달라 넉넉하게 본다.
+function looksLikeLogin(url) {
+  return /\/(login|signin|sign-in|auth)\b/i.test(url) ||
+         /accounts\.google\.com/i.test(url) ||
+         /\/ServiceLogin/i.test(url);
+}
+
+// 제공자 한 곳의 사용량 페이지 HTML을 가져온다.
+// 각 제공자가 SPA라 readySelector 가 나타날 때까지 폴링한 뒤 수집한다.
+function fetchProviderHtml(provider) {
   return new Promise((resolve) => {
+    let view = null;
     try {
-      if (fetchView) {
-        try { mainWindow.removeBrowserView(fetchView); } catch(e) {}
-        try { fetchView.webContents.destroy(); } catch(e) {}
-        fetchView = null;
-      }
-      fetchView = new BrowserView({
+      view = new BrowserView({
         webPreferences: { session: session.defaultSession, nodeIntegration: false, contextIsolation: true },
       });
-      mainWindow.addBrowserView(fetchView);
-      fetchView.setBounds({ x: -2000, y: -2000, width: 1280, height: 800 });
+      mainWindow.addBrowserView(view);
+      // 화면 밖에 두어 사용자에게 보이지 않게 한다
+      view.setBounds({ x: -2000, y: -2000, width: 1280, height: 900 });
 
-      const wc = fetchView.webContents;
+      const wc = view.webContents;
       let resolved = false;
       const done = (result) => {
         if (resolved) return;
         resolved = true;
-        try { mainWindow.removeBrowserView(fetchView); } catch(e) {}
-        try { fetchView.webContents.destroy(); } catch(e) {}
-        fetchView = null;
-        resolve(result);
+        try { mainWindow.removeBrowserView(view); } catch (e) {}
+        try { wc.destroy(); } catch (e) {}
+        resolve(Object.assign({ id: provider.id }, result));
       };
+
+      const grabHtml = () => wc.executeJavaScript('document.documentElement.outerHTML');
 
       const poll = async (n = 0) => {
         if (resolved) return;
-        if (n > 20) {
-          const html = await wc.executeJavaScript('document.documentElement.outerHTML');
-          done({ html });
+        if (n > 20) {                       // 약 10초 기다린 뒤에는 있는 그대로 수집한다
+          try { done({ html: await grabHtml() }); } catch (e) { done({ error: 'unknown', message: e.message }); }
           return;
         }
         try {
-          const found = await wc.executeJavaScript(`document.querySelector('[role="meter"]') !== null`);
+          const sel = JSON.stringify(provider.readySelector);
+          const found = await wc.executeJavaScript(`document.querySelector(${sel}) !== null`);
           if (found) {
-            await new Promise(r => setTimeout(r, 500));
-            const html = await wc.executeJavaScript('document.documentElement.outerHTML');
-            done({ html });
+            await new Promise(r => setTimeout(r, 600));   // 값이 채워질 여유
+            done({ html: await grabHtml() });
           } else {
             setTimeout(() => poll(n + 1), 500);
           }
-        } catch(e) {
+        } catch (e) {
           setTimeout(() => poll(n + 1), 500);
         }
       };
 
       wc.on('did-finish-load', () => {
-        const url = wc.getURL();
-        if (url.includes('/login') || url.includes('/auth')) {
+        if (looksLikeLogin(wc.getURL())) {
           done({ error: 'auth', message: '로그인이 필요합니다' });
           return;
         }
         setTimeout(() => poll(0), 1000);
       });
-      wc.on('did-fail-load', (e, code, desc) => done({ error: 'network', message: desc }));
-      setTimeout(() => done({ error: 'timeout', message: '시간 초과' }), 20000);
-      wc.loadURL('https://claude.ai/settings/usage');
-    } catch(e) {
-      resolve({ error: 'unknown', message: e.message });
+      wc.on('did-fail-load', (e, code, desc, validatedUrl, isMainFrame) => {
+        if (isMainFrame) done({ error: 'network', message: desc });
+      });
+      setTimeout(() => done({ error: 'timeout', message: '시간 초과' }), 25000);
+      wc.loadURL(provider.url);
+    } catch (e) {
+      try { if (view) mainWindow.removeBrowserView(view); } catch (e2) {}
+      resolve({ id: provider.id, error: 'unknown', message: e.message });
     }
   });
+}
+
+// 제공자 하나만 조회
+ipcMain.handle('fetch-provider', async (e, id) => {
+  const provider = providers.get(id);
+  if (!provider) return { id, error: 'unknown', message: '알 수 없는 제공자' };
+  return fetchProviderHtml(provider);
 });
 
-ipcMain.on('open-login', () => {
+// 여러 제공자를 동시에 조회한다. 순차로 돌리면 3사에 10~15초가 걸린다.
+// 한 곳이 실패해도 나머지 결과는 그대로 돌려준다.
+ipcMain.handle('fetch-all', async (e, ids) => {
+  const list = (Array.isArray(ids) && ids.length ? ids : providers.ids)
+    .map(id => providers.get(id))
+    .filter(Boolean);
+  return Promise.all(list.map(fetchProviderHtml));
+});
+
+ipcMain.on('open-login', (e, id) => {
+  const provider = providers.get(id) || providers.get('claude');
+  if (!provider) return;
   const w = new BrowserWindow({
-    width: 500, height: 700, alwaysOnTop: true,
+    width: 520, height: 720, alwaysOnTop: true,
+    title: `${provider.name} 로그인`,
     webPreferences: { session: session.defaultSession },
   });
-  w.loadURL('https://claude.ai/login');
-  w.on('closed', () => mainWindow.webContents.send('login-done'));
+  w.loadURL(provider.loginUrl);
+  w.on('closed', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('login-done', provider.id);
+    }
+  });
 });
