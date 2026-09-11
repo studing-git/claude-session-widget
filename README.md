@@ -245,7 +245,23 @@ Claude · ChatGPT · Gemini 사용량을 한 화면에서 봅니다. 제공자�
 | ChatGPT | 없음 | `"N% 남음"` 텍스트 → 사용률로 변환, 재설정은 버튼 `aria-label` |
 | Gemini | 없음 | `data-test-id="gxu-currently"` / `"gxu-weekly"` |
 
-**User-Agent** — Electron 기본 UA에는 앱 이름과 `Electron/xx` 토큰이 들어갑니다. Google이 이를 임베디드 브라우저로 보고 로그인을 거부할 수 있어, 두 토큰을 제거해 평범한 Chrome UA로 맞춥니다.
+**브라우저 신원 위장** (`browser-identity.js`) — Google은 임베디드 브라우저로 판단되면 로그인을 거부합니다(*"브라우저 또는 앱이 안전하지 않을 수 있습니다"*). Claude·ChatGPT를 Google 계정으로 로그인하는 경우에도 같은 화면에서 막힙니다.
+
+UA 문자열만 고쳐서는 부족합니다. Chromium은 **`Sec-CH-UA` 클라이언트 힌트**로 브랜드 목록을 따로 보내는데 거기에 `"Electron";v="28"`이 남기 때문입니다. 그래서 세션마다 다음을 모두 맞춥니다.
+
+| 헤더 | 위장 후 |
+|---|---|
+| `User-Agent` | `Mozilla/5.0 (...) Chrome/<버전>.0.0.0 Safari/537.36` |
+| `sec-ch-ua` | `"Not_A Brand";v="8", "Chromium";v="<버전>", "Google Chrome";v="<버전>"` |
+| `sec-ch-ua-platform` | `"Windows"` / `"macOS"` / `"Linux"` |
+| `Sec-CH-UA-Full-Version-List` | 제거 (Electron 버전이 드러나고 위장값과 어긋남) |
+
+광고하는 Chrome 버전은 Electron이 실제로 내장한 Chromium 버전을 그대로 씁니다. 다른 버전을 광고하면 오히려 불일치로 걸릴 수 있습니다.
+
+실제로 무엇이 전송되는지는 F12 콘솔에서 확인할 수 있습니다.
+```js
+await require('electron').ipcRenderer.invoke('browser-identity')
+```
 
 ### 기술 스택
 - **Electron 28**: 데스크탑 앱 프레임워크
