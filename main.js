@@ -2,6 +2,7 @@ process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true';
 
 const { app, BrowserWindow, BrowserView, ipcMain, session, screen } = require('electron');
 const fs = require('fs');
+const path = require('path');
 const updater   = require('./updater');
 const providers = require('./providers');
 const identity  = require('./browser-identity');
@@ -151,6 +152,9 @@ function sessionFor() {
   return ses;
 }
 
+// 마지막 조회에서 어디에 도착했고 무엇을 받았는지 기록해 둔다
+const lastFetch = {};
+
 // 로그인 상태 진단: 제공자별로 세션에 쿠키가 몇 개 있는지 본다.
 // "로그인했는데 안 된다" 일 때 쿠키가 실제로 저장됐는지부터 확인할 수 있다.
 ipcMain.handle('session-report', async () => {
@@ -159,11 +163,15 @@ ipcMain.handle('session-report', async () => {
   for (const p of providers.PROVIDERS) {
     const cookies = await cookieTools.cookiesFor(ses, p.cookieDomains);
     const authed = cookieTools.hasAuthCookie(cookies, p.authCookies);
+    const last = lastFetch[p.id] || {};
     rows.push({
       제공자: p.name,
       로그인: authed === null ? '?' : authed ? '예' : '아니오',
       쿠키수: cookies.length,
-      인증쿠키: p.authCookies.filter(n => cookies.some(c => c.name === n)).join(', ') || '없음',
+      // 인증 쿠키 이름을 못 맞혔을 수도 있으므로 전체 이름을 그대로 보여준다
+      쿠키이름: cookies.map(c => c.name).join(' '),
+      최종URL: last.finalUrl || '',
+      저장된HTML: last.debugFile || '',
       조회방식: backendOf(p.id),
     });
   }
@@ -208,11 +216,13 @@ function fetchProviderHtml(provider) {
       };
 
       const grabHtml = () => wc.executeJavaScript('document.documentElement.outerHTML');
+      const finalUrl = () => { try { return wc.getURL(); } catch (e) { return ''; } };
 
       const poll = async (n = 0) => {
         if (resolved) return;
         if (n > 20) {                       // 약 10초 기다린 뒤에는 있는 그대로 수집한다
-          try { done({ html: await grabHtml() }); } catch (e) { done({ error: 'unknown', message: e.message }); }
+          try { done({ html: await grabHtml(), finalUrl: finalUrl(), waited: true }); }
+          catch (e) { done({ error: 'unknown', message: e.message }); }
           return;
         }
         try {
@@ -220,7 +230,7 @@ function fetchProviderHtml(provider) {
           const found = await wc.executeJavaScript(`document.querySelector(${sel}) !== null`);
           if (found) {
             await new Promise(r => setTimeout(r, 600));   // 값이 채워질 여유
-            done({ html: await grabHtml() });
+            done({ html: await grabHtml(), finalUrl: finalUrl() });
           } else {
             setTimeout(() => poll(n + 1), 500);
           }
@@ -267,10 +277,24 @@ function fetchViaChrome(provider) {
     .then(res => Object.assign({ id: provider.id }, res));
 }
 
+// 받아온 HTML 을 파일로 남긴다. "로그인했는데 안 된다" 일 때
+// 실제로 무엇을 받았는지(로그인 페이지인지 사용량 페이지인지) 직접 볼 수 있어야 한다.
+function saveDebugHtml(id, html) {
+  try {
+    const dir = path.join(userDataDir(), 'debug');
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, `${id}.html`);
+    fs.writeFileSync(file, html);
+    return file;
+  } catch (e) { return ''; }
+}
+
 async function fetchOne(provider) {
   const res = backendOf(provider.id) === 'chrome'
     ? await fetchViaChrome(provider)
     : await fetchProviderHtml(provider);
+  if (res.html) res.debugFile = saveDebugHtml(provider.id, res.html);
+  lastFetch[provider.id] = { finalUrl: res.finalUrl || '', debugFile: res.debugFile || '' };
   // 지표를 못 찾았을 때 원인이 미로그인인지 구분할 수 있게 인증 여부를 함께 보낸다
   if (backendOf(provider.id) !== 'chrome') {
     try {
@@ -333,17 +357,64 @@ ipcMain.handle('fetch-all', async (e, ids) => {
 });
 
 function openLoginWindow(provider) {
+  const label = `[위젯] ${provider.name} 로그인`;
   const w = new BrowserWindow({
     width: 520, height: 720, alwaysOnTop: true,
-    title: `${provider.name} 로그인`,
+    title: label, autoHideMenuBar: true,
     webPreferences: { session: sessionFor() },
   });
-  w.loadURL(provider.loginUrl);
-  w.on('closed', () => {
+  // 페이지가 제목을 덮어쓰면 위젯 창인지 별도 앱인지 구분할 수 없다
+  w.setTitle(label);
+  w.on('page-title-updated', (e) => { e.preventDefault(); });
+
+  const notify = (authed) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('login-done', provider.id);
+      mainWindow.webContents.send('login-done', provider.id, { authed });
     }
+  };
+
+  // 로그인이 끝나면 창은 그냥 그 서비스 앱 화면이 된다. 창을 닫을 때까지 기다리면
+  // 위젯이 아무 신호도 못 받으므로, 인증 쿠키가 생기는 순간을 직접 감시한다.
+  let done = false;
+  const timer = setInterval(async () => {
+    if (done || w.isDestroyed()) return;
+    let authed = false;
+    try {
+      authed = await cookieTools.isAuthenticated(
+        sessionFor(), provider.cookieDomains, provider.authCookies);
+    } catch (e) { return; }
+    if (!authed) return;
+    done = true;
+    clearInterval(timer);
+    if (!w.isDestroyed()) w.setTitle(`${label} — 완료, 창을 닫아도 됩니다`);
+    notify(true);                       // 창이 열려 있어도 위젯은 바로 갱신된다
+  }, 1000);
+
+  w.on('closed', async () => {
+    clearInterval(timer);
+    if (done) { notify(true); return; }
+    let authed = null;
+    try {
+      authed = await cookieTools.isAuthenticated(
+        sessionFor(), provider.cookieDomains, provider.authCookies);
+    } catch (e) {}
+    notify(authed);
   });
+
+  // 인증 쿠키 이름을 잘못 알고 있을 수도 있다. 쿠키에 의존하지 않는 신호도 함께 본다:
+  // 로그인 페이지를 벗어나 그 서비스의 일반 페이지로 이동하면 로그인된 것으로 본다.
+  w.webContents.on('did-navigate', (e, url) => {
+    if (done || looksLikeLogin(url)) return;
+    setTimeout(() => {
+      if (done || w.isDestroyed()) return;
+      done = true;
+      clearInterval(timer);
+      if (!w.isDestroyed()) w.setTitle(`${label} — 완료, 창을 닫아도 됩니다`);
+      notify(true);
+    }, 1500);          // 리다이렉트가 이어질 수 있어 잠시 기다린다
+  });
+
+  w.loadURL(provider.loginUrl);
   return w;
 }
 
