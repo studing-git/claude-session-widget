@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AI 사용량 위젯 브리지",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "로그인된 브라우저에서 Claude·ChatGPT·Gemini 사용량을 읽어 데스크탑 위젯으로 전달합니다.",
   "permissions": ["alarms", "tabs"],
   "host_permissions": [
