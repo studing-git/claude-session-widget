@@ -1,12 +1,11 @@
 process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true';
 
-const { app, BrowserWindow, BrowserView, ipcMain, session, screen } = require('electron');
+const { app, BrowserWindow, BrowserView, ipcMain, session, screen, shell } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const updater   = require('./updater');
 const providers = require('./providers');
 const identity  = require('./browser-identity');
-const chrome    = require('./chrome-runner');
 const settings  = require('./settings');
 const cookieTools = require('./cookie-tools');
 const extServer   = require('./extension-server');
@@ -64,6 +63,8 @@ if (!gotSingleInstanceLock) {
 
     // 시작 시 확인은 렌더러가 준비된 뒤 직접 호출한다(check-update). 이후 30분마다 재확인.
     updateTimer = setInterval(runUpdateCheck, UPDATE_CHECK_INTERVAL);
+
+    cleanupChromeProfiles();   // 예전 위젯 전용 Chrome 프로필 정리
 
     // 확장 프로그램이 보낸 사용량을 받는 로컬 서버
     extServer.start({
@@ -192,7 +193,7 @@ ipcMain.handle('session-report', async () => {
       쿠키이름: cookies.map(c => c.name).join(' '),
       확장: freshExtensionReport(p.id) ? '연결됨' : '없음',
       최종URL: last.finalUrl || '',
-      조회방식: freshExtensionReport(p.id) ? 'extension' : backendOf(p.id),
+      조회방식: freshExtensionReport(p.id) ? 'extension' : 'widget',
     });
   }
   return rows;
@@ -279,22 +280,24 @@ function fetchProviderHtml(provider) {
 }
 
 // ── 외부 Chrome 경로 ──
-// Electron 내장 브라우저로는 Google 로그인이 막히는 경우가 있어,
-// 제공자별로 진짜 Chrome 을 쓰도록 전환할 수 있다.
-let chromePathCache;
-function chromePath() {
-  if (chromePathCache === undefined) chromePathCache = chrome.findChrome();
-  return chromePathCache;
-}
 function userDataDir() { return app.getPath('userData'); }
-function backendOf(id) {
-  return chromePath() ? settings.getBackend(userDataDir(), id) : 'electron';
-}
 
-function fetchViaChrome(provider) {
-  return chrome
-    .fetchHtml(chromePath(), chrome.profileDir(userDataDir(), provider.id), provider.url)
-    .then(res => Object.assign({ id: provider.id }, res));
+// 예전에 쓰던 위젯 전용 Chrome 프로필을 정리한다.
+// 그 프로필은 사용자의 실제(로그인된) 브라우저와 무관한 빈 프로필이라
+// 혼란만 준다. 이제 실제 브라우저 활용은 확장 프로그램이 담당한다.
+function cleanupChromeProfiles() {
+  try {
+    const dir = path.join(userDataDir(), 'chrome-profiles');
+    if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
+  } catch (e) {}
+  // 조회 방식이 chrome 으로 저장돼 있던 것을 모두 위젯 세션으로 되돌린다
+  try {
+    for (const id of providers.ids) {
+      if (settings.getBackend(userDataDir(), id) === 'chrome') {
+        settings.setBackend(userDataDir(), id, 'electron');
+      }
+    }
+  } catch (e) {}
 }
 
 // 받아온 HTML 을 파일로 남긴다. "로그인했는데 안 된다" 일 때
@@ -317,18 +320,14 @@ async function fetchOne(provider) {
     return { id: provider.id, fromExtension: true,
              plan: ext.plan, note: ext.note, metrics: ext.metrics };
   }
-  const res = backendOf(provider.id) === 'chrome'
-    ? await fetchViaChrome(provider)
-    : await fetchProviderHtml(provider);
+  const res = await fetchProviderHtml(provider);
   if (res.html) res.debugFile = saveDebugHtml(provider.id, res.html);
   lastFetch[provider.id] = { finalUrl: res.finalUrl || '', debugFile: res.debugFile || '' };
   // 지표를 못 찾았을 때 원인이 미로그인인지 구분할 수 있게 인증 여부를 함께 보낸다
-  if (backendOf(provider.id) !== 'chrome') {
-    try {
-      res.authed = await cookieTools.isAuthenticated(
-        sessionFor(), provider.cookieDomains, provider.authCookies);
-    } catch (e) { /* 판단 불가면 그대로 둔다 */ }
-  }
+  try {
+    res.authed = await cookieTools.isAuthenticated(
+      sessionFor(), provider.cookieDomains, provider.authCookies);
+  } catch (e) { /* 판단 불가면 그대로 둔다 */ }
   return res;
 }
 
@@ -336,39 +335,20 @@ ipcMain.handle('extension-status', () => ({
   connected: providers.ids.filter(freshExtensionReport),
 }));
 
-ipcMain.handle('chrome-status', () => ({
-  available: !!chromePath(),
-  path: chromePath() || '',
-  backends: Object.fromEntries(providers.ids.map(id => [id, backendOf(id)])),
-}));
-
-// 진짜 Chrome 창으로 로그인한다. 창을 닫으면 그 제공자를 Chrome 방식으로 전환하고
-// 다시 조회한다. (헤드리스 조회는 프로필이 잠겨 있으면 실패하므로 창이 닫힌 뒤에 한다)
-ipcMain.handle('open-login-chrome', async (e, id) => {
-  const provider = providers.get(id);
-  if (!provider) return { ok: false, message: '알 수 없는 제공자' };
-  const exe = chromePath();
-  if (!exe) return { ok: false, message: 'Chrome 을 찾지 못했습니다' };
-
-  try {
-    const profile = chrome.profileDir(userDataDir(), provider.id);
-    const child = chrome.openLogin(exe, profile, provider.loginUrl);
-    child.on('exit', () => {
-      settings.setBackend(userDataDir(), provider.id, 'chrome');
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('login-done', provider.id);
-      }
-    });
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, message: err.message };
-  }
+// 사용자의 실제(기본) 브라우저에서 페이지를 연다 — 이미 그 브라우저가 켜져 있으면
+// 새 탭으로 열린다. 위젯 전용 프로필이 아니라 평소 쓰는 로그인된 브라우저다.
+ipcMain.handle('open-external', async (e, target) => {
+  const provider = providers.get(target);
+  const url = provider ? provider.loginUrl : (typeof target === 'string' ? target : '');
+  if (!/^https?:\/\//.test(url)) return { ok: false, message: '잘못된 주소' };
+  try { await shell.openExternal(url); return { ok: true }; }
+  catch (err) { return { ok: false, message: err.message }; }
 });
 
-// 제공자의 조회 방식을 되돌린다
-ipcMain.handle('set-backend', (e, id, backend) => {
-  if (!providers.get(id)) return { ok: false };
-  return { ok: true, backend: settings.setBackend(userDataDir(), id, backend) };
+// 위젯이 만들었던 Chrome 전용 프로필을 삭제하고 조회 방식을 되돌린다
+ipcMain.handle('reset-chrome-profiles', () => {
+  cleanupChromeProfiles();
+  return { ok: true };
 });
 
 // 제공자 하나만 조회
@@ -399,12 +379,6 @@ function openLoginWindow(provider) {
   w.on('page-title-updated', (e) => { e.preventDefault(); });
 
   const notify = (authed) => {
-    // 여기서 한 로그인은 Electron 세션에 저장된다. 조회 방식이 chrome 으로
-    // 남아 있으면 로그인되지 않은 Chrome 프로필을 계속 읽어 영원히 연결되지 않는다.
-    if (authed && backendOf(provider.id) === 'chrome') {
-      settings.setBackend(userDataDir(), provider.id, 'electron');
-      console.log(`[login] ${provider.id}: 조회 방식을 electron 으로 되돌림`);
-    }
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('login-done', provider.id, { authed });
     }
@@ -467,18 +441,6 @@ ipcMain.handle('switch-account', async (e, id) => {
   const provider = providers.get(id);
   if (!provider) return { ok: false, message: '알 수 없는 제공자' };
   try {
-    if (backendOf(provider.id) === 'chrome') {
-      // Chrome 프로필 폴더를 비우고 다시 로그인 창을 띄운다
-      const profile = chrome.profileDir(userDataDir(), provider.id);
-      fs.rmSync(profile, { recursive: true, force: true });
-      chrome.openLogin(chromePath(), profile, provider.loginUrl)
-        .on('exit', () => {
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('login-done', provider.id);
-          }
-        });
-      return { ok: true };
-    }
     // 이 제공자의 도메인 쿠키만 지운다. 다른 서비스 로그인은 그대로 유지된다.
     const res = await cookieTools.removeFor(sessionFor(), provider.cookieDomains);
     console.log(`[switch] ${provider.id}: 쿠키 ${res.removed}/${res.found}개 삭제`);
