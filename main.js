@@ -9,6 +9,7 @@ const identity  = require('./browser-identity');
 const chrome    = require('./chrome-runner');
 const settings  = require('./settings');
 const cookieTools = require('./cookie-tools');
+const extServer   = require('./extension-server');
 
 const SNAP_MARGIN = 0;
 const UPDATE_CHECK_INTERVAL = 30 * 60 * 1000;
@@ -63,6 +64,17 @@ if (!gotSingleInstanceLock) {
 
     // 시작 시 확인은 렌더러가 준비된 뒤 직접 호출한다(check-update). 이후 30분마다 재확인.
     updateTimer = setInterval(runUpdateCheck, UPDATE_CHECK_INTERVAL);
+
+    // 확장 프로그램이 보낸 사용량을 받는 로컬 서버
+    extServer.start({
+      isKnownProvider: (id) => !!providers.get(id),
+      onReport: (report) => {
+        extensionReports[report.id] = report;
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('extension-report', report.id);
+        }
+      },
+    });
   });
 }
 
@@ -155,6 +167,14 @@ function sessionFor() {
 // 마지막 조회에서 어디에 도착했고 무엇을 받았는지 기록해 둔다
 const lastFetch = {};
 
+// 확장 프로그램이 보낸 최신 사용량 (id -> report)
+const extensionReports = {};
+const EXTENSION_FRESH_MS = 20 * 60 * 1000;   // 20분 이내 보고만 유효로 본다
+function freshExtensionReport(id) {
+  const r = extensionReports[id];
+  return r && (Date.now() - r.at) < EXTENSION_FRESH_MS ? r : null;
+}
+
 // 로그인 상태 진단: 제공자별로 세션에 쿠키가 몇 개 있는지 본다.
 // "로그인했는데 안 된다" 일 때 쿠키가 실제로 저장됐는지부터 확인할 수 있다.
 ipcMain.handle('session-report', async () => {
@@ -170,9 +190,9 @@ ipcMain.handle('session-report', async () => {
       쿠키수: cookies.length,
       // 인증 쿠키 이름을 못 맞혔을 수도 있으므로 전체 이름을 그대로 보여준다
       쿠키이름: cookies.map(c => c.name).join(' '),
+      확장: freshExtensionReport(p.id) ? '연결됨' : '없음',
       최종URL: last.finalUrl || '',
-      저장된HTML: last.debugFile || '',
-      조회방식: backendOf(p.id),
+      조회방식: freshExtensionReport(p.id) ? 'extension' : backendOf(p.id),
     });
   }
   return rows;
@@ -290,6 +310,13 @@ function saveDebugHtml(id, html) {
 }
 
 async function fetchOne(provider) {
+  // 확장 프로그램이 최근에 보낸 값이 있으면 브라우저 조회 없이 그대로 쓴다.
+  // 사용자의 로그인된 실제 브라우저에서 읽은 값이라 별도 로그인이 필요 없다.
+  const ext = freshExtensionReport(provider.id);
+  if (ext) {
+    return { id: provider.id, fromExtension: true,
+             plan: ext.plan, note: ext.note, metrics: ext.metrics };
+  }
   const res = backendOf(provider.id) === 'chrome'
     ? await fetchViaChrome(provider)
     : await fetchProviderHtml(provider);
@@ -304,6 +331,10 @@ async function fetchOne(provider) {
   }
   return res;
 }
+
+ipcMain.handle('extension-status', () => ({
+  connected: providers.ids.filter(freshExtensionReport),
+}));
 
 ipcMain.handle('chrome-status', () => ({
   available: !!chromePath(),
