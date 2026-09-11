@@ -335,11 +335,13 @@ ipcMain.handle('extension-status', () => ({
   connected: providers.ids.filter(freshExtensionReport),
 }));
 
-// 사용자의 실제(기본) 브라우저에서 페이지를 연다 — 이미 그 브라우저가 켜져 있으면
-// 새 탭으로 열린다. 위젯 전용 프로필이 아니라 평소 쓰는 로그인된 브라우저다.
+// 사용자의 실제(기본) 브라우저에서 사용량 페이지를 연다 — 이미 그 브라우저가
+// 켜져 있으면 새 탭으로 열린다. 그 페이지에서 확장 프로그램의 콘텐츠 스크립트가
+// 실행되어 위젯으로 값을 보낸다. (로그인 URL 이 아니라 사용량 URL 을 열어야
+//  콘텐츠 스크립트의 matches 에 걸린다)
 ipcMain.handle('open-external', async (e, target) => {
   const provider = providers.get(target);
-  const url = provider ? provider.loginUrl : (typeof target === 'string' ? target : '');
+  const url = provider ? provider.url : (typeof target === 'string' ? target : '');
   if (!/^https?:\/\//.test(url)) return { ok: false, message: '잘못된 주소' };
   try { await shell.openExternal(url); return { ok: true }; }
   catch (err) { return { ok: false, message: err.message }; }
