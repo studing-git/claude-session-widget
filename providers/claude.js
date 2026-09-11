@@ -8,6 +8,8 @@ const name    = 'Claude';
 const accent  = '#d97706';
 const url     = 'https://claude.ai/settings/usage';
 const loginUrl = 'https://claude.ai/login';
+// 계정 전환 시 실제 브라우저에서 열 주소 (로그아웃 후 다른 계정으로 로그인)
+const switchUrl = 'https://claude.ai/login';
 
 // 이 선택자가 나타날 때까지 기다린 뒤 HTML을 수집한다
 // 예전 defaultSession 에서 로그인을 물려받을 때 옮겨올 쿠키 도메인
@@ -117,7 +119,7 @@ function parse(doc) {
   return { plan, metrics, meterCount: bars.length };
 }
 
-const _api = { id, name, accent, url, loginUrl, cookieDomains, authCookies, readySelector, parse };
+const _api = { id, name, accent, url, loginUrl, switchUrl, cookieDomains, authCookies, readySelector, parse };
 if (typeof module !== 'undefined' && module.exports) module.exports = _api;
 // 확장 프로그램의 콘텐츠 스크립트에서도 같은 파서를 쓴다
 if (typeof globalThis !== 'undefined') (globalThis.AIUsageProviders = globalThis.AIUsageProviders || {})[id] = _api;
