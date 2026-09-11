@@ -13,6 +13,9 @@ const partition = 'persist:claude';
 const loginUrl = 'https://claude.ai/login';
 
 // 이 선택자가 나타날 때까지 기다린 뒤 HTML을 수집한다
+// 예전 defaultSession 에서 로그인을 물려받을 때 옮겨올 쿠키 도메인
+const cookieDomains = ['claude.ai', 'anthropic.com'];
+
 const readySelector = '[role="meter"]';
 
 function parse(doc) {
@@ -114,4 +117,4 @@ function parse(doc) {
   return { plan, metrics, meterCount: bars.length };
 }
 
-module.exports = { id, name, accent, url, loginUrl, partition, readySelector, parse };
+module.exports = { id, name, accent, url, loginUrl, partition, cookieDomains, readySelector, parse };

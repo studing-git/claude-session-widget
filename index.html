@@ -74,7 +74,7 @@ html,body{overflow:hidden;background:#1a1a1a;color:#e8e8e8;font-family:-apple-sy
 #uiUni{width:360px;display:block;}
 .tb-uni{display:flex;justify-content:space-between;align-items:center;padding:10px 14px 9px;border-bottom:1px solid #2a2a2a;cursor:move;}
 .rows-uni{padding:6px 12px 8px;}
-.prow{display:flex;align-items:center;gap:10px;padding:9px 2px;border-bottom:1px solid #232323;}
+.prow{display:flex;align-items:center;gap:10px;padding:9px 2px;border-bottom:1px solid #232323;overflow:hidden;}
 .prow:last-child{border-bottom:none;}
 .pwho{width:80px;flex-shrink:0;}
 .pname{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:#ddd;}
@@ -89,15 +89,15 @@ html,body{overflow:hidden;background:#1a1a1a;color:#e8e8e8;font-family:-apple-sy
 .ptrack{height:4px;border-radius:3px;background:#2b2b2b;overflow:hidden;}
 .pfill{height:100%;border-radius:3px;}
 .psub{font-size:8px;color:#5f5f5f;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.pstate{flex:1;display:flex;align-items:center;gap:8px;font-size:9.5px;color:#6a6a6a;}
+.pstate{flex:1;min-width:0;display:flex;align-items:center;gap:6px;font-size:9.5px;color:#6a6a6a;}
 .pbtn{background:#2a2a2a;border:1px solid #383838;color:#bbb;border-radius:5px;cursor:pointer;
-  font-family:inherit;font-size:9px;padding:3px 9px;line-height:1.4;}
+  font-family:inherit;font-size:9px;padding:3px 8px;line-height:1.4;flex-shrink:0;white-space:nowrap;}
 .pbtn:hover{background:#333;color:#eee;}
 .pswap{background:none;border:none;color:#4a4a4a;cursor:pointer;font-family:inherit;font-size:8.5px;
   padding:2px 4px;border-radius:4px;opacity:0;transition:opacity .15s,color .15s,background .15s;flex-shrink:0;}
 .prow:hover .pswap{opacity:1;}
 .pswap:hover{color:#ccc;background:#2a2a2a;}
-.pbtn-chrome{margin-left:4px;border-color:#3d5a3d;color:#9c9;}
+.pbtn-chrome{border-color:#3d5a3d;color:#9c9;}
 .pbtn-chrome:hover{background:#2c3a2c;color:#dfd;}
 .footer-uni{display:flex;justify-content:space-between;align-items:center;padding:7px 14px 10px;border-top:1px solid #2a2a2a;}
 .fnote{font-size:9.5px;color:#3a3a3a;}
@@ -384,8 +384,12 @@ function renderUnified(data) {
       // auth 가 아닌 error 도 대부분 로그인이 안 된 상태다. 로그아웃 상태의 SPA는
       // 로그인 URL로 리다이렉트하지 않고 빈 페이지만 그려 지표를 못 찾는 경우가 많다.
       // 어느 쪽이든 로그인할 방법은 항상 있어야 한다.
-      const msg = p.state === 'auth' ? '로그인이 필요합니다'
-                                     : (p.message || '불러오지 못했습니다');
+      const full = p.state === 'auth' ? '로그인이 필요합니다' : (p.message || '불러오지 못했습니다');
+      // 버튼이 밀려나지 않도록 짧게 줄인다. 전체 문구는 title 로 볼 수 있다.
+      const msg = p.state === 'auth' ? '로그인 필요'
+                : /찾지 못했/.test(full) ? '사용량 없음'
+                : /시간 초과|timeout/i.test(full) ? '시간 초과'
+                : full.length > 16 ? full.slice(0, 16) + '…' : full;
       const col = p.state === 'auth' ? '#6a6a6a' : '#a15c5c';
       // Electron 내장 브라우저는 Google 에 임베디드 브라우저로 막히는 경우가 있어
       // 진짜 Chrome 으로 로그인하는 선택지를 함께 준다.
@@ -393,7 +397,7 @@ function renderUnified(data) {
         ? `<button class="pbtn pbtn-chrome" data-login-chrome="${esc(p.id)}"
              title="진짜 Chrome 창으로 로그인합니다. Google 로그인이 막힐 때 사용하세요.">Chrome</button>`
         : '';
-      body = `<div class="pstate" title="${esc(p.message || msg)}">
+      body = `<div class="pstate" title="${esc(full)}">
         <span style="color:${col};flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(msg)}</span>
         <button class="pbtn" data-login="${esc(p.id)}">로그인</button>${chromeBtn}</div>`;
     }
