@@ -269,7 +269,15 @@ await require('electron').ipcRenderer.invoke('browser-identity')
 ```js
 console.table(await require('electron').ipcRenderer.invoke('session-report'))
 ```
-`쿠키수`가 0이면 로그인이 세션에 저장되지 않은 것이고, 1 이상인데도 사용량이 안 나오면 파싱이나 페이지 구조 문제입니다.
+| 제공자 | 로그인 | 쿠키수 | 인증쿠키 | 조회방식 |
+|---|---|---|---|---|
+| Claude | 아니오 | 20 | 없음 | electron |
+| Gemini | 예 | 25 | SSID, SAPISID | electron |
+
+**`쿠키수`로 판단하면 안 됩니다.** 분석·기기 식별 쿠키(`_fbp`, `anthropic-device-id` 등)가 수십 개 쌓여 있어도 로그인과는 무관합니다. `로그인` 열은 제공자별 **인증 쿠키**(Claude `sessionKey`, ChatGPT `__Secure-next-auth.session-token`, Google `SID`/`SSID`/`__Secure-1PSID`)가 있는지로만 판정합니다.
+
+- `로그인: 아니오` → 로그인이 실제로 안 된 상태. 위젯도 "로그인 필요"로 표시합니다.
+- `로그인: 예` 인데 사용량이 안 나옴 → 파싱이나 페이지 구조 문제.
 
 #### 그래도 막히면 — Chrome 방식
 

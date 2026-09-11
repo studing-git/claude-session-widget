@@ -13,6 +13,9 @@ const loginUrl = 'https://claude.ai/login';
 // 예전 defaultSession 에서 로그인을 물려받을 때 옮겨올 쿠키 도메인
 const cookieDomains = ['claude.ai', 'anthropic.com'];
 
+// 로그인 여부를 가르는 쿠키. 분석·기기 식별 쿠키(_fbp, anthropic-device-id 등)와 구분한다.
+const authCookies = ['sessionKey', 'sessionKey.sig', '__Secure-next-auth.session-token'];
+
 const readySelector = '[role="meter"]';
 
 function parse(doc) {
@@ -114,4 +117,4 @@ function parse(doc) {
   return { plan, metrics, meterCount: bars.length };
 }
 
-module.exports = { id, name, accent, url, loginUrl, cookieDomains, readySelector, parse };
+module.exports = { id, name, accent, url, loginUrl, cookieDomains, authCookies, readySelector, parse };

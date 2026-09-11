@@ -679,7 +679,14 @@ function toProviderState(res) {
       message: res.message || res.error,
     });
   }
-  return providers.parseHtml(res.id, res.html, DOMParser);
+  const parsed = providers.parseHtml(res.id, res.html, DOMParser);
+  // 지표를 못 찾았는데 인증 쿠키도 없으면 원인은 미로그인이다.
+  // (쿠키 개수만으로는 알 수 없다 — 분석·기기 쿠키가 수십 개씩 쌓여 있다)
+  if (parsed.state === 'error' && res.authed === false) {
+    parsed.state = 'auth';
+    parsed.message = '로그인이 필요합니다';
+  }
+  return parsed;
 }
 
 async function loadData(force = false) {

@@ -158,11 +158,12 @@ ipcMain.handle('session-report', async () => {
   const rows = [];
   for (const p of providers.PROVIDERS) {
     const cookies = await cookieTools.cookiesFor(ses, p.cookieDomains);
+    const authed = cookieTools.hasAuthCookie(cookies, p.authCookies);
     rows.push({
       제공자: p.name,
-      도메인: p.cookieDomains.join(', '),
+      로그인: authed === null ? '?' : authed ? '예' : '아니오',
       쿠키수: cookies.length,
-      이름: cookies.slice(0, 6).map(c => c.name).join(', '),
+      인증쿠키: p.authCookies.filter(n => cookies.some(c => c.name === n)).join(', ') || '없음',
       조회방식: backendOf(p.id),
     });
   }
@@ -266,10 +267,18 @@ function fetchViaChrome(provider) {
     .then(res => Object.assign({ id: provider.id }, res));
 }
 
-function fetchOne(provider) {
-  return backendOf(provider.id) === 'chrome'
-    ? fetchViaChrome(provider)
-    : fetchProviderHtml(provider);
+async function fetchOne(provider) {
+  const res = backendOf(provider.id) === 'chrome'
+    ? await fetchViaChrome(provider)
+    : await fetchProviderHtml(provider);
+  // 지표를 못 찾았을 때 원인이 미로그인인지 구분할 수 있게 인증 여부를 함께 보낸다
+  if (backendOf(provider.id) !== 'chrome') {
+    try {
+      res.authed = await cookieTools.isAuthenticated(
+        sessionFor(), provider.cookieDomains, provider.authCookies);
+    } catch (e) { /* 판단 불가면 그대로 둔다 */ }
+  }
+  return res;
 }
 
 ipcMain.handle('chrome-status', () => ({
