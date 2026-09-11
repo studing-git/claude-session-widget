@@ -7,7 +7,7 @@ const providers = require('./providers');
 const identity  = require('./browser-identity');
 const chrome    = require('./chrome-runner');
 const settings  = require('./settings');
-const migrate   = require('./session-migrate');
+const cookieTools = require('./cookie-tools');
 
 const SNAP_MARGIN = 0;
 const UPDATE_CHECK_INTERVAL = 30 * 60 * 1000;
@@ -140,44 +140,34 @@ ipcMain.handle('snap-to-edge', () => {
   return { snapX, snapY };
 });
 
-// 제공자마다 독립된 영구 세션을 쓴다. 서비스별로 다른 계정을 쓸 수 있고,
-// 계정 전환 시 해당 파티션만 비우면 다른 서비스 로그인은 유지된다.
-// 예전 버전의 로그인을 파티션으로 한 번만 물려받는다.
-// (PR 이전에는 모든 제공자가 defaultSession 을 공유했다)
-const migrations = new Map();
-function ensureMigrated(provider) {
-  if (!provider.partition || !provider.cookieDomains) return Promise.resolve();
-  if (migrations.has(provider.id)) return migrations.get(provider.id);
-
-  const key = 'migrated:' + provider.id;
-  const done = settings.read(userDataDir())[key];
-  if (done) { migrations.set(provider.id, Promise.resolve()); return migrations.get(provider.id); }
-
-  const task = migrate
-    .migrateCookies(session.defaultSession, sessionFor(provider), provider.cookieDomains)
-    .then(res => {
-      const data = settings.read(userDataDir());
-      data[key] = true;
-      settings.write(userDataDir(), data);
-      if (res.copied) console.log(`[migrate] ${provider.id}: 쿠키 ${res.copied}/${res.found}개를 이어받았습니다`);
-      return res;
-    })
-    .catch(() => {});
-  migrations.set(provider.id, task);
-  return task;
-}
-
-const identityApplied = new Set();
-function sessionFor(provider) {
-  const ses = provider.partition ? session.fromPartition(provider.partition) : session.defaultSession;
-  // 세션마다 한 번만 적용한다. onBeforeSendHeaders 는 마지막 리스너만 유효하므로
-  // 중복 등록하면 앞의 것이 조용히 대체된다.
-  if (!identityApplied.has(ses)) {
-    identity.applyTo(ses);
-    identityApplied.add(ses);
-  }
+// PR #16 에서 제공자별 파티션으로 나눴다가, 예전 로그인이 끊겨 되돌렸다.
+// 세 제공자는 도메인이 다르므로 한 세션을 공유해도 서로 다른 계정을 쓸 수 있고,
+// 계정 전환은 해당 도메인 쿠키만 지우면 된다.
+let identityApplied = false;
+function sessionFor() {
+  const ses = session.defaultSession;
+  // onBeforeSendHeaders 는 마지막 리스너만 유효하므로 한 번만 등록한다
+  if (!identityApplied) { identity.applyTo(ses); identityApplied = true; }
   return ses;
 }
+
+// 로그인 상태 진단: 제공자별로 세션에 쿠키가 몇 개 있는지 본다.
+// "로그인했는데 안 된다" 일 때 쿠키가 실제로 저장됐는지부터 확인할 수 있다.
+ipcMain.handle('session-report', async () => {
+  const ses = sessionFor();
+  const rows = [];
+  for (const p of providers.PROVIDERS) {
+    const cookies = await cookieTools.cookiesFor(ses, p.cookieDomains);
+    rows.push({
+      제공자: p.name,
+      도메인: p.cookieDomains.join(', '),
+      쿠키수: cookies.length,
+      이름: cookies.slice(0, 6).map(c => c.name).join(', '),
+      조회방식: backendOf(p.id),
+    });
+  }
+  return rows;
+});
 
 // 사이트가 실제로 무엇을 보는지 확인용. 로그인이 막히면 이 값부터 본다.
 ipcMain.handle('browser-identity', () => ({
@@ -200,7 +190,7 @@ function fetchProviderHtml(provider) {
     let view = null;
     try {
       view = new BrowserView({
-        webPreferences: { session: sessionFor(provider), nodeIntegration: false, contextIsolation: true },
+        webPreferences: { session: sessionFor(), nodeIntegration: false, contextIsolation: true },
       });
       mainWindow.addBrowserView(view);
       // 화면 밖에 두어 사용자에게 보이지 않게 한다
@@ -276,10 +266,10 @@ function fetchViaChrome(provider) {
     .then(res => Object.assign({ id: provider.id }, res));
 }
 
-async function fetchOne(provider) {
-  if (backendOf(provider.id) === 'chrome') return fetchViaChrome(provider);
-  await ensureMigrated(provider);      // 예전 로그인을 물려받은 뒤 조회한다
-  return fetchProviderHtml(provider);
+function fetchOne(provider) {
+  return backendOf(provider.id) === 'chrome'
+    ? fetchViaChrome(provider)
+    : fetchProviderHtml(provider);
 }
 
 ipcMain.handle('chrome-status', () => ({
@@ -337,7 +327,7 @@ function openLoginWindow(provider) {
   const w = new BrowserWindow({
     width: 520, height: 720, alwaysOnTop: true,
     title: `${provider.name} 로그인`,
-    webPreferences: { session: sessionFor(provider) },
+    webPreferences: { session: sessionFor() },
   });
   w.loadURL(provider.loginUrl);
   w.on('closed', () => {
@@ -348,11 +338,9 @@ function openLoginWindow(provider) {
   return w;
 }
 
-ipcMain.on('open-login', async (e, id) => {
+ipcMain.on('open-login', (e, id) => {
   const provider = providers.get(id);
-  if (!provider) return;
-  await ensureMigrated(provider);
-  openLoginWindow(provider);
+  if (provider) openLoginWindow(provider);
 });
 
 // 계정 전환: 해당 제공자의 쿠키·저장소를 비운 뒤 로그인 창을 연다.
@@ -374,9 +362,9 @@ ipcMain.handle('switch-account', async (e, id) => {
         });
       return { ok: true };
     }
-    const ses = sessionFor(provider);
-    await ses.clearStorageData();
-    await ses.clearCache();
+    // 이 제공자의 도메인 쿠키만 지운다. 다른 서비스 로그인은 그대로 유지된다.
+    const res = await cookieTools.removeFor(sessionFor(), provider.cookieDomains);
+    console.log(`[switch] ${provider.id}: 쿠키 ${res.removed}/${res.found}개 삭제`);
     openLoginWindow(provider);
     return { ok: true };
   } catch (err) {

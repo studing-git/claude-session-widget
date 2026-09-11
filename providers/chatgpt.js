@@ -11,9 +11,6 @@ const id       = 'chatgpt';
 const name     = 'ChatGPT';
 const accent   = '#10a37f';
 const url      = 'https://chatgpt.com/#settings/Usage';
-// 제공자마다 쿠키를 분리한다. 서비스별로 다른 계정을 쓸 수 있고,
-// 계정 전환 시 이 파티션만 비우면 다른 서비스 로그인은 그대로 남는다.
-const partition = 'persist:chatgpt';
 const loginUrl = 'https://chatgpt.com/auth/login';
 
 // 사용량 탭 패널이 그려질 때까지 기다린다
@@ -94,4 +91,4 @@ function parse(doc) {
   return { plan: SCOPE_NOTE, metrics, note: 'Chat 대화 미포함' };
 }
 
-module.exports = { id, name, accent, url, loginUrl, partition, cookieDomains, readySelector, parse, toUsedPct };
+module.exports = { id, name, accent, url, loginUrl, cookieDomains, readySelector, parse, toUsedPct };

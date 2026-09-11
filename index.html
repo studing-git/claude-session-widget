@@ -299,6 +299,9 @@ updBtns.forEach(b => b.addEventListener('click', applyUpdate));
 ipcRenderer.on('update-available', (e, info) => showUpdateBadge(info));
 // 시작 시 1회 확인 (리스너 등록이 끝난 뒤이므로 이벤트 유실 없음)
 ipcRenderer.invoke('check-update').then(res => { if (res && res.available) showUpdateBadge(res); });
+ipcRenderer.invoke('session-report')
+  .then(rows => { if (rows) { console.log('[진단] 제공자별 쿠키 상태'); console.table(rows); } })
+  .catch(() => {});
 ipcRenderer.invoke('chrome-status').then(info => {
   if (info) { chromeInfo = info; if (cache) render(cache); }
 }).catch(() => {});
