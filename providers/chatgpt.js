@@ -12,6 +12,8 @@ const name     = 'ChatGPT';
 const accent   = '#10a37f';
 const url      = 'https://chatgpt.com/#settings/Usage';
 const loginUrl = 'https://chatgpt.com/auth/login';
+// 계정 전환 시 실제 브라우저에서 열 주소 (로그아웃 후 다른 계정으로 로그인)
+const switchUrl = 'https://chatgpt.com/auth/login';
 
 // 사용량 탭 패널이 그려질 때까지 기다린다
 // 예전 defaultSession 에서 로그인을 물려받을 때 옮겨올 쿠키 도메인
@@ -94,7 +96,7 @@ function parse(doc) {
   return { plan: SCOPE_NOTE, metrics, note: 'Chat 대화 미포함' };
 }
 
-const _api = { id, name, accent, url, loginUrl, cookieDomains, authCookies, readySelector, parse, toUsedPct };
+const _api = { id, name, accent, url, loginUrl, switchUrl, cookieDomains, authCookies, readySelector, parse, toUsedPct };
 if (typeof module !== 'undefined' && module.exports) module.exports = _api;
 // 확장 프로그램의 콘텐츠 스크립트에서도 같은 파서를 쓴다
 if (typeof globalThis !== 'undefined') (globalThis.AIUsageProviders = globalThis.AIUsageProviders || {})[id] = _api;

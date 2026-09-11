@@ -8,6 +8,10 @@ const name     = 'Gemini';
 const accent   = '#4285f4';
 const url      = 'https://gemini.google.com/usage';
 const loginUrl = 'https://gemini.google.com/';
+// 계정 전환 시 실제 브라우저에서 열 주소. 구글은 다계정을 지원하므로
+// 계정 선택 화면을 연 뒤 사용량 페이지로 이어지게 한다.
+const switchUrl = 'https://accounts.google.com/AccountChooser?continue=' +
+  encodeURIComponent('https://gemini.google.com/usage');
 
 // 예전 defaultSession 에서 로그인을 물려받을 때 옮겨올 쿠키 도메인
 const cookieDomains = ['google.com', 'googleusercontent.com'];
@@ -57,7 +61,7 @@ function parse(doc) {
   return { plan, metrics };
 }
 
-const _api = { id, name, accent, url, loginUrl, cookieDomains, authCookies, readySelector, parse };
+const _api = { id, name, accent, url, loginUrl, switchUrl, cookieDomains, authCookies, readySelector, parse };
 if (typeof module !== 'undefined' && module.exports) module.exports = _api;
 // 확장 프로그램의 콘텐츠 스크립트에서도 같은 파서를 쓴다
 if (typeof globalThis !== 'undefined') (globalThis.AIUsageProviders = globalThis.AIUsageProviders || {})[id] = _api;

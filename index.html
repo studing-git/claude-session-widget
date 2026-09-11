@@ -243,16 +243,6 @@ initDrag(document.getElementById('titlebarMini'));
 ['btnModeUni', 'btnToggle', 'btnExpand'].forEach(id =>
   document.getElementById(id).addEventListener('click', nextMode));
 
-ipcRenderer.on('login-done', async (e, id, info) => {
-  // 로그인 창을 닫았는데 인증 쿠키가 없으면 그 창의 로그인이 위젯에 반영되지 않은 것이다.
-  // (별도 데스크톱 앱이나 다른 브라우저에서 한 로그인은 위젯 세션과 무관하다)
-  if (info && info.authed === false) {
-    const p = providers.get(id);
-    setFooter(`${p ? p.name : id} 로그인이 저장되지 않았습니다 — 위젯 로그인 창에서 로그인해 주세요`);
-  }
-  loadData(true);
-});
-
 /* ── 자동 업데이트 ── */
 const updBtns = [document.getElementById('btnUpdateUni'),
                  document.getElementById('btnUpdateFull'),
@@ -424,7 +414,7 @@ function renderUnified(data) {
       </div>
       ${body}
       ${p.state === 'ok'
-        ? `<button class="pswap" data-swap="${esc(p.id)}" title="${esc(p.name)} 계정 전환 — 로그아웃 후 다른 계정으로 로그인합니다">전환</button>`
+        ? `<button class="pswap" data-swap="${esc(p.id)}" title="${esc(p.name)} 계정 전환 — 평소 쓰는 브라우저에서 다른 계정으로 로그인합니다">전환</button>`
         : ''}
     </div>`;
   };
@@ -745,13 +735,15 @@ async function connectProvider(id) {
   else setFooter(`열기 실패: ${(res && res.message) || ''}`);
 }
 
-// 계정 전환은 해당 제공자에서 로그아웃시키므로 확인을 받는다
+// 계정 전환: 위젯 창이 아니라 평소 쓰는 실제 브라우저에서 계정을 바꾼다.
+// 브라우저에서 다른 계정으로 로그인한 뒤 사용량 페이지를 열면, 확장 프로그램이
+// 새 계정의 값을 위젯으로 보낸다.
 async function switchAccount(id) {
   const p = providers.get(id);
   const name = p ? p.name : id;
-  if (!confirm(`${name}에서 로그아웃하고 다른 계정으로 로그인할까요?\n\n다른 서비스의 로그인은 그대로 유지됩니다.`)) return;
   const res = await ipcRenderer.invoke('switch-account', id);
-  if (!res || !res.ok) setFooter(`계정 전환 실패: ${(res && res.message) || ''}`);
+  if (res && res.ok) setFooter(`브라우저에서 ${name} 계정을 전환하세요 — 로그인 후 사용량 페이지를 열면 반영됩니다`);
+  else setFooter(`계정 전환 실패: ${(res && res.message) || ''}`);
 }
 
 setMode('uni');
