@@ -23,11 +23,15 @@ html,body{overflow:hidden;background:#1a1a1a;color:#e8e8e8;font-family:-apple-sy
 .tip:hover::after{opacity:1;}
 
 /* 업데이트 배지 */
-.upd{display:none;align-items:center;gap:4px;background:#d97706;color:#fff;border:none;border-radius:5px;cursor:pointer;font-family:inherit;font-size:9px;font-weight:600;padding:3px 7px;line-height:1;}
-.upd:hover{background:#b45309;}
-.upd:disabled{opacity:.6;cursor:progress;}
-.upd.show{display:inline-flex;}
-.upd-mini{padding:2px 5px;font-size:8px;}
+/* 업데이트 버튼은 항상 보인다. 평소엔 아이콘만(= 업데이트 확인),
+   새 버전이 감지되면 주황 알약(= 지금 적용)으로 바뀐다. */
+.upd{display:inline-flex;align-items:center;gap:4px;background:none;color:#555;border:none;border-radius:5px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600;padding:2px 5px;line-height:1;transition:color .15s,background .15s;}
+.upd:hover{color:#ccc;background:#2a2a2a;}
+.upd:disabled{opacity:.4;cursor:progress;}
+.upd.show{background:#d97706;color:#fff;font-size:9px;padding:3px 7px;}
+.upd.show:hover{background:#b45309;}
+.upd-mini{font-size:12px;}
+.upd-mini.show{font-size:8px;padding:2px 5px;}
 
 @keyframes spin{to{transform:rotate(360deg);}}
 .spinner{display:inline-block;border:2px solid #2e2e2e;border-top-color:#d97706;border-radius:50%;animation:spin .7s linear infinite;}
@@ -119,7 +123,7 @@ html,body{overflow:hidden;background:#1a1a1a;color:#e8e8e8;font-family:-apple-sy
       <span style="font-size:12px;font-weight:600;color:#ccc;letter-spacing:.02em;">AI 사용량</span>
     </div>
     <div style="display:flex;align-items:center;gap:4px;">
-      <button class="upd" id="btnUpdateUni" title="새 버전으로 업데이트 후 재시작">⬆ 업데이트</button>
+      <button class="upd" id="btnUpdateUni">⬆</button>
       <button class="iBtn" id="btnRefreshUni" title="새로고침">↻</button>
       <button class="iBtn" id="btnModeUni" title="Claude 상세">⊞</button>
       <div style="display:flex;gap:5px;margin-left:4px;">
@@ -150,7 +154,7 @@ html,body{overflow:hidden;background:#1a1a1a;color:#e8e8e8;font-family:-apple-sy
       <span style="font-size:10px;color:#555;" id="planLabel"></span>
     </div>
     <div style="display:flex;align-items:center;gap:4px;">
-      <button class="upd" id="btnUpdateFull" title="새 버전으로 업데이트 후 재시작">⬆ 업데이트</button>
+      <button class="upd" id="btnUpdateFull">⬆</button>
       <button class="iBtn" id="btnRefreshFull" title="새로고침">↻</button>
       <button class="iBtn" id="btnToggle" title="미니 모드">⊟</button>
       <div style="display:flex;gap:5px;margin-left:4px;">
@@ -179,7 +183,7 @@ html,body{overflow:hidden;background:#1a1a1a;color:#e8e8e8;font-family:-apple-sy
       <span style="font-size:10px;font-weight:600;color:#aaa;">AI 사용량</span>
     </div>
     <div style="display:flex;align-items:center;gap:3px;">
-      <button class="upd upd-mini" id="btnUpdateMini" title="새 버전으로 업데이트 후 재시작">⬆</button>
+      <button class="upd upd-mini" id="btnUpdateMini">⬆</button>
       <button class="iBtn" id="btnRefreshMini" style="font-size:13px;">↻</button>
       <button class="iBtn" id="btnExpand" title="확대">⊞</button>
     </div>
@@ -250,16 +254,40 @@ const updBtns = [document.getElementById('btnUpdateUni'),
 const btnUpdFull = document.getElementById('btnUpdateFull');
 const btnUpdUni  = document.getElementById('btnUpdateUni');
 
+// 현재 버전을 툴팁에 보여 주면 "지금 몇 버전이지?" 를 위젯에서 바로 알 수 있다
+const APP_VERSION = (() => {
+  try { return require('./package.json').version; } catch (e) { return ''; }
+})();
+const IDLE_TIP = `업데이트 확인${APP_VERSION ? ` (현재 v${APP_VERSION})` : ''}\n` +
+                 '클릭하면 새 버전을 확인하고, 있으면 바로 받아 재시작합니다';
+
+// 새 버전이 감지된 상태인가 — 버튼이 '확인'인지 '적용'인지를 가른다
+let updateReady = false;
+
+function setUpdLabels() {
+  const wide = updateReady ? '⬆ 업데이트' : '⬆';
+  btnUpdFull.textContent = wide;
+  btnUpdUni.textContent  = wide;
+}
+
 function showUpdateBadge(info) {
+  updateReady = true;
   const tip = `새 버전 ${info.behind}개 커밋${info.subject ? ` · ${info.subject}` : ''}\n클릭하면 업데이트 후 재시작합니다`;
   updBtns.forEach(b => { b.classList.add('show'); b.title = tip; });
+  setUpdLabels();
+  resizeToContent();
+}
+
+function clearUpdateBadge() {
+  updateReady = false;
+  updBtns.forEach(b => { b.classList.remove('show'); b.title = IDLE_TIP; });
+  setUpdLabels();
   resizeToContent();
 }
 
 function endUpdateState(msg) {
-  updBtns.forEach(b => { b.disabled = false; b.title = msg; });
-  btnUpdFull.textContent = '⬆ 업데이트';
-  btnUpdUni.textContent  = '⬆ 업데이트';
+  updBtns.forEach(b => { b.disabled = false; b.title = updateReady ? b.title : IDLE_TIP; });
+  setUpdLabels();
   setFooter(msg);
   // 메시지를 잠시 보여준 뒤 평소 동작(경과 시간 표시·데이터 갱신)을 재개한다
   setTimeout(() => {
@@ -285,7 +313,7 @@ async function applyUpdate() {
       setFooter('재시작 중…'); // 곧 앱이 재시작되므로 타이머를 되살리지 않는다
       return;
     }
-    updBtns.forEach(b => b.classList.remove('show'));
+    clearUpdateBadge();
     endUpdateState('이미 최신 버전입니다');
     return;
   }
@@ -297,7 +325,34 @@ async function applyUpdate() {
   );
 }
 
-updBtns.forEach(b => b.addEventListener('click', applyUpdate));
+// 버튼 한 번으로 "확인 → 있으면 바로 git pull 후 재시작" 까지 끝낸다.
+// (새 버전이 이미 감지된 상태면 곧장 적용한다)
+async function onUpdateClick() {
+  if (updating) return;
+  if (updateReady) { applyUpdate(); return; }
+
+  updating = true;                       // 확인 중 중복 클릭 방지
+  updBtns.forEach(b => { b.disabled = true; });
+  stopTimer();                           // 경과 시간 표시가 상태 메시지를 덮지 않도록
+  resetRetry();
+  setFooter('업데이트 확인 중…');
+
+  let res = null;
+  try { res = await ipcRenderer.invoke('check-update'); } catch (e) {}
+
+  if (res && res.available) {
+    showUpdateBadge(res);
+    updating = false;                    // applyUpdate 가 다시 잠근다
+    applyUpdate();                       // 확인되면 곧바로 적용
+    return;
+  }
+  // endUpdateState 가 버튼을 되살리고 5초 뒤 평소 표시로 돌아간다
+  endUpdateState(res && res.reason === 'not_git'
+    ? 'git 저장소가 아니라 업데이트할 수 없습니다'
+    : '이미 최신 버전입니다');
+}
+
+updBtns.forEach(b => { b.title = IDLE_TIP; b.addEventListener('click', onUpdateClick); });
 ipcRenderer.on('update-available', (e, info) => showUpdateBadge(info));
 // 시작 시 1회 확인 (리스너 등록이 끝난 뒤이므로 이벤트 유실 없음)
 ipcRenderer.invoke('check-update').then(res => { if (res && res.available) showUpdateBadge(res); });
@@ -305,6 +360,11 @@ ipcRenderer.invoke('extension-status').then(info => { if (info) extInfo = info; 
 let extRefreshTimer = null;
 ipcRenderer.on('extension-report', () => {
   // 여러 보고가 몰려와도 한 번만 갱신한다
+  if (extRefreshTimer) return;
+  extRefreshTimer = setTimeout(() => { extRefreshTimer = null; loadData(true); }, 800);
+});
+// 확장이 쿠키를 넘겨 위젯 세션에 주입되면, 그 쿠키로 곧바로 다시 조회한다
+ipcRenderer.on('cookies-updated', () => {
   if (extRefreshTimer) return;
   extRefreshTimer = setTimeout(() => { extRefreshTimer = null; loadData(true); }, 800);
 });

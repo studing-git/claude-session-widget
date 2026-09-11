@@ -24,6 +24,10 @@ const authCookies = ['__Secure-next-auth.session-token', '__Secure-next-auth.ses
 
 const readySelector = '[id$="-content-Usage"]';
 
+// 사용량이 해시 라우트(#settings/Usage)라, 위젯 오프스크린 조회 시 라우트를
+// 한 번 흔들어 설정→사용량 화면을 열어야 readySelector 가 나타난다.
+const hashNudge = true;
+
 const SCOPE_NOTE = 'Codex · Work';
 
 // "100% 남음" / "12% 사용됨" 을 사용된 비율로 변환
@@ -96,7 +100,7 @@ function parse(doc) {
   return { plan: SCOPE_NOTE, metrics, note: 'Chat 대화 미포함' };
 }
 
-const _api = { id, name, accent, url, loginUrl, switchUrl, cookieDomains, authCookies, readySelector, parse, toUsedPct };
+const _api = { id, name, accent, url, loginUrl, switchUrl, cookieDomains, authCookies, readySelector, hashNudge, parse, toUsedPct };
 if (typeof module !== 'undefined' && module.exports) module.exports = _api;
 // 확장 프로그램의 콘텐츠 스크립트에서도 같은 파서를 쓴다
 if (typeof globalThis !== 'undefined') (globalThis.AIUsageProviders = globalThis.AIUsageProviders || {})[id] = _api;
