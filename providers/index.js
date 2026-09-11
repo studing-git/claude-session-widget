@@ -35,7 +35,8 @@ function parseHtml(id, html, DOMParserImpl) {
     if (!metrics.length) {
       return Object.assign(base, {
         state: 'error',
-        message: '사용량을 찾지 못했습니다 (페이지 구조 변경 가능성)',
+        // 지표가 하나도 없는 가장 흔한 원인은 로그아웃이다. 페이지 구조 변경도 같은 증상을 낸다.
+        message: '사용량을 찾지 못했습니다 — 로그인을 확인해 주세요',
         plan: out.plan || '',
       });
     }

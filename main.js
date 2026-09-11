@@ -135,6 +135,12 @@ ipcMain.handle('snap-to-edge', () => {
   return { snapX, snapY };
 });
 
+// 제공자마다 독립된 영구 세션을 쓴다. 서비스별로 다른 계정을 쓸 수 있고,
+// 계정 전환 시 해당 파티션만 비우면 다른 서비스 로그인은 유지된다.
+function sessionFor(provider) {
+  return provider.partition ? session.fromPartition(provider.partition) : session.defaultSession;
+}
+
 // 로그인 페이지로 튕겼는지 판별. 제공자마다 로그인 URL 모양이 달라 넉넉하게 본다.
 function looksLikeLogin(url) {
   return /\/(login|signin|sign-in|auth)\b/i.test(url) ||
@@ -149,7 +155,7 @@ function fetchProviderHtml(provider) {
     let view = null;
     try {
       view = new BrowserView({
-        webPreferences: { session: session.defaultSession, nodeIntegration: false, contextIsolation: true },
+        webPreferences: { session: sessionFor(provider), nodeIntegration: false, contextIsolation: true },
       });
       mainWindow.addBrowserView(view);
       // 화면 밖에 두어 사용자에게 보이지 않게 한다
@@ -222,13 +228,11 @@ ipcMain.handle('fetch-all', async (e, ids) => {
   return Promise.all(list.map(fetchProviderHtml));
 });
 
-ipcMain.on('open-login', (e, id) => {
-  const provider = providers.get(id) || providers.get('claude');
-  if (!provider) return;
+function openLoginWindow(provider) {
   const w = new BrowserWindow({
     width: 520, height: 720, alwaysOnTop: true,
     title: `${provider.name} 로그인`,
-    webPreferences: { session: session.defaultSession },
+    webPreferences: { session: sessionFor(provider) },
   });
   w.loadURL(provider.loginUrl);
   w.on('closed', () => {
@@ -236,4 +240,27 @@ ipcMain.on('open-login', (e, id) => {
       mainWindow.webContents.send('login-done', provider.id);
     }
   });
+  return w;
+}
+
+ipcMain.on('open-login', (e, id) => {
+  const provider = providers.get(id);
+  if (provider) openLoginWindow(provider);
+});
+
+// 계정 전환: 해당 제공자의 쿠키·저장소를 비운 뒤 로그인 창을 연다.
+// 비우지 않으면 사이트가 기존 쿠키를 보고 곧바로 로그인 상태로 넘어가
+// 계정 선택 화면이 나오지 않는다.
+ipcMain.handle('switch-account', async (e, id) => {
+  const provider = providers.get(id);
+  if (!provider) return { ok: false, message: '알 수 없는 제공자' };
+  try {
+    const ses = sessionFor(provider);
+    await ses.clearStorageData();
+    await ses.clearCache();
+    openLoginWindow(provider);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, message: err.message };
+  }
 });
