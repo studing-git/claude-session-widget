@@ -1,9 +1,12 @@
 process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true';
 
 const { app, BrowserWindow, BrowserView, ipcMain, session, screen } = require('electron');
+const fs = require('fs');
 const updater   = require('./updater');
 const providers = require('./providers');
 const identity  = require('./browser-identity');
+const chrome    = require('./chrome-runner');
+const settings  = require('./settings');
 
 const SNAP_MARGIN = 0;
 const UPDATE_CHECK_INTERVAL = 30 * 60 * 1000;
@@ -228,11 +231,71 @@ function fetchProviderHtml(provider) {
   });
 }
 
+// ── 외부 Chrome 경로 ──
+// Electron 내장 브라우저로는 Google 로그인이 막히는 경우가 있어,
+// 제공자별로 진짜 Chrome 을 쓰도록 전환할 수 있다.
+let chromePathCache;
+function chromePath() {
+  if (chromePathCache === undefined) chromePathCache = chrome.findChrome();
+  return chromePathCache;
+}
+function userDataDir() { return app.getPath('userData'); }
+function backendOf(id) {
+  return chromePath() ? settings.getBackend(userDataDir(), id) : 'electron';
+}
+
+function fetchViaChrome(provider) {
+  return chrome
+    .fetchHtml(chromePath(), chrome.profileDir(userDataDir(), provider.id), provider.url)
+    .then(res => Object.assign({ id: provider.id }, res));
+}
+
+function fetchOne(provider) {
+  return backendOf(provider.id) === 'chrome'
+    ? fetchViaChrome(provider)
+    : fetchProviderHtml(provider);
+}
+
+ipcMain.handle('chrome-status', () => ({
+  available: !!chromePath(),
+  path: chromePath() || '',
+  backends: Object.fromEntries(providers.ids.map(id => [id, backendOf(id)])),
+}));
+
+// 진짜 Chrome 창으로 로그인한다. 창을 닫으면 그 제공자를 Chrome 방식으로 전환하고
+// 다시 조회한다. (헤드리스 조회는 프로필이 잠겨 있으면 실패하므로 창이 닫힌 뒤에 한다)
+ipcMain.handle('open-login-chrome', async (e, id) => {
+  const provider = providers.get(id);
+  if (!provider) return { ok: false, message: '알 수 없는 제공자' };
+  const exe = chromePath();
+  if (!exe) return { ok: false, message: 'Chrome 을 찾지 못했습니다' };
+
+  try {
+    const profile = chrome.profileDir(userDataDir(), provider.id);
+    const child = chrome.openLogin(exe, profile, provider.loginUrl);
+    child.on('exit', () => {
+      settings.setBackend(userDataDir(), provider.id, 'chrome');
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('login-done', provider.id);
+      }
+    });
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, message: err.message };
+  }
+});
+
+// 제공자의 조회 방식을 되돌린다
+ipcMain.handle('set-backend', (e, id, backend) => {
+  if (!providers.get(id)) return { ok: false };
+  return { ok: true, backend: settings.setBackend(userDataDir(), id, backend) };
+});
+
 // 제공자 하나만 조회
 ipcMain.handle('fetch-provider', async (e, id) => {
   const provider = providers.get(id);
   if (!provider) return { id, error: 'unknown', message: '알 수 없는 제공자' };
-  return fetchProviderHtml(provider);
+  return fetchOne(provider);
 });
 
 // 여러 제공자를 동시에 조회한다. 순차로 돌리면 3사에 10~15초가 걸린다.
@@ -241,7 +304,7 @@ ipcMain.handle('fetch-all', async (e, ids) => {
   const list = (Array.isArray(ids) && ids.length ? ids : providers.ids)
     .map(id => providers.get(id))
     .filter(Boolean);
-  return Promise.all(list.map(fetchProviderHtml));
+  return Promise.all(list.map(fetchOne));
 });
 
 function openLoginWindow(provider) {
@@ -271,6 +334,18 @@ ipcMain.handle('switch-account', async (e, id) => {
   const provider = providers.get(id);
   if (!provider) return { ok: false, message: '알 수 없는 제공자' };
   try {
+    if (backendOf(provider.id) === 'chrome') {
+      // Chrome 프로필 폴더를 비우고 다시 로그인 창을 띄운다
+      const profile = chrome.profileDir(userDataDir(), provider.id);
+      fs.rmSync(profile, { recursive: true, force: true });
+      chrome.openLogin(chromePath(), profile, provider.loginUrl)
+        .on('exit', () => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('login-done', provider.id);
+          }
+        });
+      return { ok: true };
+    }
     const ses = sessionFor(provider);
     await ses.clearStorageData();
     await ses.clearCache();
