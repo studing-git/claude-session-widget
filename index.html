@@ -308,6 +308,11 @@ ipcRenderer.on('extension-report', () => {
   if (extRefreshTimer) return;
   extRefreshTimer = setTimeout(() => { extRefreshTimer = null; loadData(true); }, 800);
 });
+// 확장이 쿠키를 넘겨 위젯 세션에 주입되면, 그 쿠키로 곧바로 다시 조회한다
+ipcRenderer.on('cookies-updated', () => {
+  if (extRefreshTimer) return;
+  extRefreshTimer = setTimeout(() => { extRefreshTimer = null; loadData(true); }, 800);
+});
 ipcRenderer.invoke('session-report')
   .then(rows => { if (rows) { console.log('[진단] 제공자별 쿠키 상태'); console.table(rows); } })
   .catch(() => {});

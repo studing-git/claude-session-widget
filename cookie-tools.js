@@ -59,6 +59,28 @@ async function migrateCookies(fromSes, toSes, domains) {
   return { found: mine.length, copied };
 }
 
+// 확장 프로그램이 chrome.cookies 로 읽어 보낸 원본 쿠키를 세션에 주입한다.
+// 크롬 쿠키 객체 모양(name/value/domain/path/secure/httpOnly/sameSite/
+//  expirationDate/hostOnly)은 toSetDetails 가 그대로 다룰 수 있다.
+// 한 번 주입하면 defaultSession 이 디스크에 보관하므로, 브라우저를 닫아도
+// 위젯이 그 쿠키로 사용량 페이지를 단독 조회할 수 있다.
+async function setCookies(ses, rawCookies) {
+  const list = Array.isArray(rawCookies) ? rawCookies : [];
+  let set = 0, failed = 0;
+  for (const c of list) {
+    if (!c || !c.name || !c.domain) { failed++; continue; }
+    const details = toSetDetails(c);
+    // Electron 은 sameSite='no_restriction' 인데 secure=false 이면 거부한다.
+    // 크롬에서 넘어온 값이 어긋나면 unspecified 로 낮춰 주입을 살린다.
+    if (details.sameSite === 'no_restriction' && !details.secure) {
+      details.sameSite = 'unspecified';
+    }
+    try { await ses.cookies.set(details); set++; }
+    catch (e) { failed++; /* 하나 실패해도 나머지는 계속 주입한다 */ }
+  }
+  return { set, failed };
+}
+
 // 제공자 도메인에 해당하는 쿠키만 추린다
 async function cookiesFor(ses, domains) {
   try {
@@ -96,6 +118,6 @@ async function isAuthenticated(ses, domains, authNames) {
 }
 
 module.exports = {
-  migrateCookies, cookiesFor, removeFor, hasAuthCookie, isAuthenticated,
+  migrateCookies, setCookies, cookiesFor, removeFor, hasAuthCookie, isAuthenticated,
   matchesDomains, cookieUrl, toSetDetails, baseDomain,
 };

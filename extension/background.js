@@ -1,37 +1,32 @@
-// 백그라운드 서비스 워커 — 콘텐츠 스크립트가 보낸 사용량을 위젯의
-// 로컬 서버로 전달한다. 콘텐츠 스크립트는 https 페이지 안이라 로컬 http 로
-// 직접 못 보내지만, 확장의 서비스 워커는 127.0.0.1 로 요청할 수 있다.
+// 백그라운드 서비스 워커.
+//
+// 두 가지를 위젯의 로컬 서버(127.0.0.1:47836)로 전달한다.
+//  1) 콘텐츠 스크립트가 사용량 페이지에서 파싱한 값(POST /report) — 그 페이지에
+//     사용자가 있을 때의 즉시 갱신.
+//  2) 이 프로필의 세션 쿠키(POST /cookies) — 위젯이 자체 세션에 주입해 두면,
+//     브라우저를 닫아도 위젯이 그 쿠키로 사용량을 단독 조회할 수 있다.
+//
+// 확장은 "쿠키 기부자" 역할이라, 예전처럼 배경 탭으로 AI 사이트를 열지 않는다.
 
 const BRIDGE = { port: 47836, token: 'ai-usage-widget-local' };
 const base = `http://127.0.0.1:${BRIDGE.port}`;
 
-// 배경 갱신용: 제공자별 사용량 페이지 URL
-const USAGE_URLS = {
-  claude:  'https://claude.ai/settings/usage',
-  gemini:  'https://gemini.google.com/usage',
-  // ChatGPT 는 해시 라우트(#settings/Usage). 콘텐츠 스크립트가 설정→사용량을
-  // 열도록 유도하므로 배경 갱신에도 포함한다(그래도 실패하면 사용자가 직접 열면 된다).
-  chatgpt: 'https://chatgpt.com/#settings/Usage',
+// 제공자별 쿠키 도메인 (providers/<id>.js 의 cookieDomains 와 동일하게 유지).
+// chrome.cookies.getAll({domain}) 는 해당 도메인과 그 하위 도메인 쿠키를 준다.
+const COOKIE_DOMAINS = {
+  claude:  ['claude.ai', 'anthropic.com'],
+  chatgpt: ['chatgpt.com', 'openai.com'],
+  gemini:  ['google.com', 'googleusercontent.com'],
 };
 
-// 우리가 배경 갱신용으로 연 탭. 보고를 받거나 시간이 지나면 우리가 닫는다.
-// (사용자가 직접 연 탭은 여기 없으므로 건드리지 않는다.)
-const managedTabs = new Set();
-
-// 탭을 안전하게 닫는다. 이미 닫혀 있으면 chrome.tabs.remove 가 거부(reject)하는데,
-// 이걸 처리하지 않으면 "Uncaught (in promise) Error: No tab with id" 가 뜬다.
-function closeTab(tabId) {
-  if (tabId == null || !managedTabs.has(tabId)) return;
-  managedTabs.delete(tabId);
-  Promise.resolve(chrome.tabs.remove(tabId)).catch(() => {});   // 이미 닫혔으면 무시
+// 위젯이 켜져 있는지 확인한다. 꺼져 있으면 보낼 곳이 없다.
+async function widgetUp() {
+  try { return (await fetch(`${base}/ping`)).ok; } catch (e) { return false; }
 }
 
-// 사용자가 탭을 직접 닫으면 추적 목록에서 뺀다 (나중에 또 닫으려다 오류나지 않도록)
-chrome.tabs.onRemoved.addListener((tabId) => { managedTabs.delete(tabId); });
-
-async function forward(payload) {
+async function post(pathname, payload) {
   try {
-    await fetch(`${base}/report`, {
+    await fetch(`${base}${pathname}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-widget-token': BRIDGE.token },
       body: JSON.stringify(payload),
@@ -41,43 +36,58 @@ async function forward(payload) {
   }
 }
 
-chrome.runtime.onMessage.addListener((msg, sender) => {
-  if (!msg || msg.type !== 'usage' || !msg.payload) return;
-  forward(msg.payload);
-  // 우리가 배경으로 연 탭에서 온 보고라면, 값을 받았으니 바로 닫는다
-  // (15초를 기다릴 필요 없이 화면에 잠깐만 떴다 사라진다).
-  if (sender && sender.tab) closeTab(sender.tab.id);
-});
+// 콘텐츠 스크립트가 파싱한 사용량 값
+function forwardUsage(payload) { return post('/report', payload); }
 
-// 위젯이 켜져 있는지 확인한다. 꺼져 있으면 배경 탭을 열어도 받을 곳이 없다.
-async function widgetUp() {
-  try { return (await fetch(`${base}/ping`)).ok; } catch (e) { return false; }
+// 이 프로필에서 제공자 도메인의 쿠키를 모아 위젯으로 넘긴다.
+// 로그인돼 있지 않아 쿠키가 없으면 보내지 않는다(빈 값으로 덮어쓰지 않는다).
+async function donateCookies(id) {
+  const domains = COOKIE_DOMAINS[id];
+  if (!domains) return;
+  const seen = new Set();
+  const cookies = [];
+  for (const domain of domains) {
+    let list = [];
+    try { list = await chrome.cookies.getAll({ domain }); } catch (e) { continue; }
+    for (const c of list) {
+      const key = `${c.name}|${c.domain}|${c.path}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      cookies.push({
+        name: c.name, value: c.value, domain: c.domain, path: c.path,
+        secure: c.secure, httpOnly: c.httpOnly, hostOnly: c.hostOnly,
+        sameSite: c.sameSite, expirationDate: c.expirationDate,
+      });
+    }
+  }
+  if (!cookies.length) return;
+  await post('/cookies', { id, cookies });
 }
 
-// 배경 갱신: 사용량 페이지를 배경 탭에서 잠깐 열어 최신값을 받는다.
-// 배경 탭이라 포커스를 뺏지 않고, 보고를 받으면(위 리스너에서) 곧바로 닫는다.
-async function refreshInBackground(id) {
-  const url = USAGE_URLS[id];
-  if (!url) return;
-  let tab;
-  try {
-    tab = await chrome.tabs.create({ url, active: false });
-  } catch (e) { return; }
-  managedTabs.add(tab.id);
-  // 보고가 오면 리스너가 닫지만, 안 오는 경우(로그인 안 됨 등)를 위해 안전장치로도 닫는다
-  setTimeout(() => closeTab(tab.id), 20000);
-}
-
-// 위젯이 켜져 있을 때만 모든 제공자를 배경 갱신한다
-async function refreshAll() {
+// 위젯이 켜져 있을 때만 3사 쿠키를 기부한다
+async function donateAll() {
   if (!(await widgetUp())) return;
-  for (const id of Object.keys(USAGE_URLS)) refreshInBackground(id);
+  for (const id of Object.keys(COOKIE_DOMAINS)) donateCookies(id);
 }
 
-chrome.alarms.create('refresh', { periodInMinutes: 15 });
-chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === 'refresh') refreshAll();
+async function onUsage(payload) {
+  forwardUsage(payload);
+  // 사용량 페이지가 열렸다는 건 이 프로필에 로그인돼 있다는 확증이다.
+  // 그 김에 해당 제공자 쿠키도 기부해 위젯이 이후 단독 조회할 수 있게 한다.
+  if (await widgetUp()) donateCookies(payload.id);
+}
+
+// 응답을 돌려주지 않으므로 리스너에서 Promise 를 반환하지 않는다
+// (반환하면 "message port closed" 경고가 뜰 수 있다). fire-and-forget.
+chrome.runtime.onMessage.addListener((msg, sender) => {
+  if (msg && msg.type === 'usage' && msg.payload) { onUsage(msg.payload); }
 });
 
-// 설치/갱신 직후 한 번 즉시 갱신 (위젯이 켜져 있을 때만 탭을 연다)
-chrome.runtime.onInstalled.addListener(() => { refreshAll(); });
+// 주기 기부: 위젯이 켜져 있으면 30분마다 최신 쿠키를 넘긴다
+chrome.alarms.create('donate', { periodInMinutes: 30 });
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === 'donate') donateAll();
+});
+
+// 설치/갱신 직후 한 번 기부
+chrome.runtime.onInstalled.addListener(() => { donateAll(); });

@@ -1,13 +1,15 @@
 {
   "manifest_version": 3,
   "name": "AI 사용량 위젯 브리지",
-  "version": "2.0.1",
-  "description": "로그인된 브라우저에서 Claude·ChatGPT·Gemini 사용량을 읽어 데스크탑 위젯으로 전달합니다.",
-  "permissions": ["alarms", "tabs"],
+  "version": "2.1.0",
+  "description": "로그인된 브라우저에서 Claude·ChatGPT·Gemini 사용량·세션 쿠키를 읽어 데스크탑 위젯으로 전달합니다.",
+  "permissions": ["alarms", "cookies"],
   "host_permissions": [
     "https://claude.ai/*",
+    "https://*.anthropic.com/*",
     "https://chatgpt.com/*",
-    "https://gemini.google.com/*",
+    "https://*.openai.com/*",
+    "https://*.google.com/*",
     "http://127.0.0.1/*"
   ],
   "background": { "service_worker": "background.js" },

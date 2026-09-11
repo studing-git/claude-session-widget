@@ -66,7 +66,7 @@ if (!gotSingleInstanceLock) {
 
     cleanupChromeProfiles();   // 예전 위젯 전용 Chrome 프로필 정리
 
-    // 확장 프로그램이 보낸 사용량을 받는 로컬 서버
+    // 확장 프로그램이 보낸 사용량/쿠키를 받는 로컬 서버
     extServer.start({
       isKnownProvider: (id) => !!providers.get(id),
       onReport: (report) => {
@@ -75,8 +75,29 @@ if (!gotSingleInstanceLock) {
           mainWindow.webContents.send('extension-report', report.id);
         }
       },
+      onCookies: (payload) => { ingestCookies(payload); },
     });
   });
+}
+
+// 확장이 보낸 세션 쿠키를 위젯 세션에 주입한다. 한 번 주입하면 defaultSession 이
+// 디스크에 보관하므로, 브라우저를 닫아도 위젯이 그 쿠키로 사용량을 단독 조회한다.
+// 주입 직후 그 제공자를 한 번 조회해 값을 즉시 갱신하고 렌더러에 알린다.
+async function ingestCookies(payload) {
+  const provider = providers.get(payload.id);
+  if (!provider) return;
+  try {
+    const res = await cookieTools.setCookies(sessionFor(), payload.cookies);
+    // 쿠키 값은 절대 남기지 않는다 — 주입 개수만 기록한다
+    console.log(`[cookies] ${provider.id}: 주입 ${res.set}개 (실패 ${res.failed})`);
+  } catch (e) {
+    console.error(`[cookies] ${provider.id}: 주입 실패 — ${e.message}`);
+    return;
+  }
+  // 렌더러에 알려 새 쿠키로 곧바로 다시 조회하게 한다 (조회는 렌더러가 fetch-all 로 수행)
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('cookies-updated', provider.id);
+  }
 }
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
@@ -264,6 +285,14 @@ function fetchProviderHtml(provider) {
         if (looksLikeLogin(wc.getURL())) {
           done({ error: 'auth', message: '로그인이 필요합니다' });
           return;
+        }
+        // ChatGPT 는 사용량이 해시 라우트(#settings/Usage)라 새로 로드하면 설정
+        // 패널이 자동으로 안 열린다. 라우트를 한 번 흔들어 사용량 화면을 띄운다
+        // (확장 content-collect.js 의 nudgeChatgptUsage 와 같은 방식).
+        if (provider.hashNudge) {
+          wc.executeJavaScript(
+            "location.hash='settings';setTimeout(function(){location.hash='settings/Usage';},150);"
+          ).catch(() => {});
         }
         setTimeout(() => poll(0), 1000);
       });
