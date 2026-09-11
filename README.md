@@ -12,7 +12,7 @@ Claude.ai Max 플랜 사용량을 항상 화면 위에 표시하는 데스크탑
 - **개인 사용 목적으로만 제작됨**
 - **Anthropic 이용약관을 준수하세요**
 
-Automated access to claude.ai의 자동 접근은 Anthropic의 서비스 이용약관(Consumer ToS Section 3.7) 위반 소지가 있습니다. 개인 사용은 회색지대이나, 배포 및 상업적 사용은 명확한 위반이므로 금지됩니다.
+claude.ai에 대한 자동 접근은 Anthropic의 서비스 이용약관(Consumer ToS Section 3.7) 위반 소지가 있습니다. **ChatGPT·Gemini 패널도 각 서비스의 페이지를 자동으로 열어 읽으므로 OpenAI·Google 약관에 대해 같은 문제가 적용됩니다.** 개인 사용은 회색지대이나, 배포 및 상업적 사용은 명확한 위반이므로 금지됩니다.
 
 ---
 
@@ -135,7 +135,7 @@ Register-ScheduledTask -TaskName 'ClaudeUsageWidget' -Action $action -Trigger $t
 
 ### 기본 조작
 - **타이틀바 드래그**: 위젯 창 이동
-- **⊟ 버튼**: 미니 모드 전환 (580×약240 ↔ 144×약141)
+- **⊞ / ⊟ 버튼**: 모드 순환 — 통합(360×약257) → Claude 상세(580×약268) → 미니(144×약123)
 - **↻ 버튼**: 데이터 새로고침 (강제 갱신)
 - **⬆ 업데이트 버튼**: 새 버전이 있을 때만 표시 (아래 "자동 업데이트" 참고)
 - **─ 버튼**: 창 최소화
@@ -175,7 +175,21 @@ Register-ScheduledTask -TaskName 'ClaudeUsageWidget' -Action $action -Trigger $t
 
 ## 기능
 
-### 표시 정보
+### 통합 패널 (기본 화면)
+
+Claude · ChatGPT · Gemini 사용량을 한 화면에서 봅니다. 제공자마다 한 행이며, 각 행은 요약 지표 2개를 가로 막대로 보여줍니다. 로그인되지 않은 서비스는 그 행에만 **로그인** 버튼이 뜨고, 나머지는 정상 표시됩니다.
+
+| 제공자 | 출처 | 요약 지표 |
+|---|---|---|
+| Claude | `claude.ai/settings/usage` | 세션 · 주간 |
+| ChatGPT | `chatgpt.com` 설정 › 사용량 | 주간 한도 · 크레딧 |
+| Gemini | `gemini.google.com/usage` | 현재 · 주간 |
+
+**ChatGPT 수치의 범위** — 해당 페이지는 *"Codex, Work, 워크스페이스 에이전트, Excel용 ChatGPT에서 공유됩니다. Chat 대화는 포함되지 않습니다"* 라고 명시합니다. 즉 **일반 ChatGPT 대화 사용량이 아닙니다.** 위젯에도 `Codex · Work` 로 표기해 구분합니다.
+
+**퍼센트 의미 통일** — ChatGPT는 잔여율("100% 남음"), Claude·Gemini는 사용률("29% 사용됨")을 표시합니다. 위젯은 모두 **사용률**로 변환해 같은 기준으로 보여줍니다.
+
+### Claude 상세 (표시 정보)
 - **현재 세션**: 현재 대화 세션의 사용률
 - **주간(전체)**: 일주일 전체 모델의 사용률
 - **주간(모델별)**: claude.ai가 표시하는 모델별 주간 사용률 (라벨은 페이지에서 읽어 표시)
@@ -187,14 +201,16 @@ Register-ScheduledTask -TaskName 'ClaudeUsageWidget' -Action $action -Trigger $t
   - 🟠 주황색 (50~79%): 주의 필요
   - 🔴 빨강색 (80~100%): 임박함
 - **재설정 시간**: 각 제한이 초기화되는 시간 표시
-- **일반 모드**: 상세 정보 5개 카드 표시 (Claude Design 포함)
-- **미니 모드**: 세션·주간 2개 카드만 표시 (재설정 시각은 게이지 hover 시 툴팁으로 확인)
+- **통합 모드**: 3사를 행으로 나열, 각 행에 가로 막대 2개
+- **Claude 상세**: Claude 지표를 원형 게이지 카드로 표시
+- **미니 모드**: 3사를 한 줄씩 요약 (재설정 시각은 hover 시 툴팁으로 확인)
 
 ### 특징
 - 항상 최상위(Always on Top) 표시
 - 중복 실행 방지: 이미 실행 중이면 새 창을 띄우지 않고 기존 창을 앞으로 가져옴
 - 화면 모서리에 여백 없이 밀착
-- 모드 전환 가능 (일반 ↔ 미니)
+- 모드 순환 (통합 ↔ Claude 상세 ↔ 미니)
+- 제공자별 독립 상태: 한 서비스가 실패해도 나머지는 정상 표시
 - 화면 모서리 자동 스냅 (드래그/모드 전환 시)
 - 네트워크 오류 자동 재시도 (Progressive Backoff)
 - Claude Design 주간 한도 표시 지원
@@ -206,12 +222,22 @@ Register-ScheduledTask -TaskName 'ClaudeUsageWidget' -Action $action -Trigger $t
 ## 기술 정보
 
 ### 동작 원리
-1. Electron `BrowserView`를 화면 밖(-2000px)에 숨겨 `claude.ai/settings/usage` 페이지를 렌더링
-2. `[role="meter"]` 요소가 생길 때까지 0.5초마다 폴링
-3. 발견되면 DOM에서 사용량 데이터 추출 (카드 라벨 텍스트 기준 매핑 — 바 순서·개수가 바뀌어도 견딤)
+1. 제공자마다 Electron `BrowserView`를 화면 밖(-2000px)에 띄워 사용량 페이지를 렌더링 (3사 동시 진행)
+2. 각 제공자의 `readySelector`가 나타날 때까지 0.5초마다 폴링
+3. 수집한 HTML을 `providers/<id>.js` 파서가 정규화된 지표 배열로 변환
 4. 위젯 UI에 렌더링
 
-> claude.ai가 React SPA이므로 단순 fetch로는 렌더링된 DOM을 얻을 수 없어 실제 브라우저 렌더링이 필요합니다.
+> 세 서비스 모두 SPA라 단순 fetch로는 렌더링된 DOM을 얻을 수 없어 실제 브라우저 렌더링이 필요합니다.
+
+**제공자별 파싱 훅**
+
+| 제공자 | 게이지 role | 파싱 근거 |
+|---|---|---|
+| Claude | `role="meter"` | `aria-valuenow` + 카드 라벨 텍스트 |
+| ChatGPT | 없음 | `"N% 남음"` 텍스트 → 사용률로 변환, 재설정은 버튼 `aria-label` |
+| Gemini | 없음 | `data-test-id="gxu-currently"` / `"gxu-weekly"` |
+
+**User-Agent** — Electron 기본 UA에는 앱 이름과 `Electron/xx` 토큰이 들어갑니다. Google이 이를 임베디드 브라우저로 보고 로그인을 거부할 수 있어, 두 토큰을 제거해 평범한 Chrome UA로 맞춥니다.
 
 ### 기술 스택
 - **Electron 28**: 데스크탑 앱 프레임워크
@@ -222,7 +248,8 @@ Register-ScheduledTask -TaskName 'ClaudeUsageWidget' -Action $action -Trigger $t
 
 ## 알려진 제한사항
 
-- claude.ai HTML 구조 변경 시 파싱이 깨질 수 있음
+- 각 서비스의 HTML 구조 변경 시 파싱이 깨질 수 있음 (ChatGPT·Gemini는 게이지에 `role`이 없어 Claude보다 취약)
+- ChatGPT 패널은 Codex/Work 한도이며 일반 Chat 대화 사용량은 포함하지 않음
 - 보안 설정(`nodeIntegration: true`)은 개인 사용 기준 — 배포 시 preload.js 방식으로 전환 필요
 - exe 패키징 미포함 (electron-builder로 직접 빌드 가능)
 - macOS에서 동작하나 `launch.vbs`는 Windows 전용
@@ -251,6 +278,14 @@ git checkout -f -B main origin/main
 ```
 
 ## 변경 이력
+
+### 2026-09-09
+- **통합 패널 추가**: Claude · ChatGPT · Gemini 사용량을 한 화면에서 확인. 제공자별 행 레이아웃(360px)
+- **모드 순환**: 통합 → Claude 상세 → 미니
+- **제공자별 로그인**: 미로그인 서비스는 해당 행에서만 로그인 안내, 나머지는 정상 표시
+- **파서 계층 분리**: `providers/` 로 제공자별 파서 분리 및 정규화 모델 도입
+- **동시 조회**: 3사를 병렬로 조회해 대기 시간 단축, 한 곳이 실패해도 나머지는 표시
+- **User-Agent 정리**: Electron·앱 토큰을 제거해 Google 로그인 차단 가능성 완화
 
 ### 2026-08-21
 - **미니 모드 축소**: 160×183 → 144×141. 재설정 텍스트를 화면에서 빼고(게이지 hover 시 툴팁으로 확인) 여백을 조임

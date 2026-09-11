@@ -35,7 +35,7 @@ html,body{overflow:hidden;background:#1a1a1a;color:#e8e8e8;font-family:-apple-sy
 .login-btn{display:inline-block;margin-top:10px;padding:6px 16px;background:#d97706;color:#fff;border:none;border-radius:6px;cursor:pointer;font-family:inherit;}
 
 /* ── 일반 모드 580px ── */
-#uiFull{width:580px;display:block;}
+#uiFull{width:580px;display:none;}
 .tb-full{display:flex;justify-content:space-between;align-items:center;padding:10px 16px 9px;border-bottom:1px solid #2a2a2a;cursor:move;}
 .body-full{display:flex;padding:16px 14px;gap:6px;}
 .card-full{flex:1;display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px 1px 12px;background:#252525;border-radius:10px;border:1px solid #2e2e2e;transition:border-color .3s,background .3s;}
@@ -60,14 +60,74 @@ html,body{overflow:hidden;background:#1a1a1a;color:#e8e8e8;font-family:-apple-sy
 .rpct-mini{font-size:12px;font-weight:700;color:#f0f0f0;}
 .mlabel{font-size:9px;color:#888;text-align:center;line-height:1.3;}
 .footer-mini{display:flex;justify-content:center;align-items:center;padding:4px 10px 6px;border-top:1px solid #2a2a2a;}
+.mini-rows{padding:6px 8px 6px;}
+.mrow{display:flex;align-items:center;gap:5px;padding:4px 2px;cursor:default;}
+.mname{font-size:9px;color:#aaa;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.mcell{font-size:10px;font-weight:700;width:30px;text-align:right;flex-shrink:0;}
 
 /* 미니 모드는 창이 좁아 기본 툴팁이 창 밖으로 잘린다.
    재설정 정보를 볼 수 있는 유일한 수단이므로 창 폭에 맞춰 고정 배치한다. */
 #uiMini .tip::after{position:fixed;left:5px;right:5px;top:30px;bottom:auto;transform:none;
   white-space:normal;text-align:center;line-height:1.4;z-index:100;}
+
+/* ── 통합 모드 360px (Claude · ChatGPT · Gemini) ── */
+#uiUni{width:360px;display:block;}
+.tb-uni{display:flex;justify-content:space-between;align-items:center;padding:10px 14px 9px;border-bottom:1px solid #2a2a2a;cursor:move;}
+.rows-uni{padding:6px 12px 8px;}
+.prow{display:flex;align-items:center;gap:10px;padding:9px 2px;border-bottom:1px solid #232323;}
+.prow:last-child{border-bottom:none;}
+.pwho{width:80px;flex-shrink:0;}
+.pname{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:#ddd;}
+.pdot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+.pplan{font-size:8.5px;color:#6a6a6a;margin-top:3px;margin-left:14px;letter-spacing:.02em;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.pmetrics{flex:1;display:flex;gap:10px;min-width:0;}
+.pm{flex:1;min-width:0;}
+.pmh{display:flex;justify-content:space-between;align-items:baseline;gap:4px;margin-bottom:5px;}
+.pml{font-size:9px;color:#777;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.pmv{font-size:12px;font-weight:700;letter-spacing:-.02em;white-space:nowrap;}
+.ptrack{height:4px;border-radius:3px;background:#2b2b2b;overflow:hidden;}
+.pfill{height:100%;border-radius:3px;}
+.psub{font-size:8px;color:#5f5f5f;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.pstate{flex:1;display:flex;align-items:center;gap:8px;font-size:9.5px;color:#6a6a6a;}
+.pbtn{background:#2a2a2a;border:1px solid #383838;color:#bbb;border-radius:5px;cursor:pointer;
+  font-family:inherit;font-size:9px;padding:3px 9px;line-height:1.4;}
+.pbtn:hover{background:#333;color:#eee;}
+.footer-uni{display:flex;justify-content:space-between;align-items:center;padding:7px 14px 10px;border-top:1px solid #2a2a2a;}
+.fnote{font-size:9.5px;color:#3a3a3a;}
 </style>
 </head>
 <body>
+
+<!-- ── 통합 모드 (기본) ── -->
+<div id="uiUni">
+  <div class="tb-uni" id="titlebarUni">
+    <div style="display:flex;align-items:center;gap:8px;">
+      <div style="width:8px;height:8px;border-radius:50%;background:#d97706;flex-shrink:0;"></div>
+      <span style="font-size:12px;font-weight:600;color:#ccc;letter-spacing:.02em;">AI 사용량</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:4px;">
+      <button class="upd" id="btnUpdateUni" title="새 버전으로 업데이트 후 재시작">⬆ 업데이트</button>
+      <button class="iBtn" id="btnRefreshUni" title="새로고침">↻</button>
+      <button class="iBtn" id="btnModeUni" title="Claude 상세">⊞</button>
+      <div style="display:flex;gap:5px;margin-left:4px;">
+        <button class="wb mn" style="width:12px;height:12px;" id="btnMinUni">–</button>
+        <button class="wb cl" style="width:12px;height:12px;" id="btnCloseUni">✕</button>
+      </div>
+    </div>
+  </div>
+  <div id="uniContent">
+    <div class="rows-uni">
+      <div class="state-box" style="padding:28px 14px;font-size:12px;">
+        <div class="spinner" style="width:16px;height:16px;margin-bottom:8px;"></div><br>불러오는 중...
+      </div>
+    </div>
+  </div>
+  <div class="footer-uni">
+    <span style="font-size:10px;color:#444;" id="updUni">—</span>
+    <span class="fnote" id="connUni"></span>
+  </div>
+</div>
 
 <!-- ── 일반 모드 ── -->
 <div id="uiFull">
@@ -104,7 +164,7 @@ html,body{overflow:hidden;background:#1a1a1a;color:#e8e8e8;font-family:-apple-sy
   <div class="tb-mini" id="titlebarMini">
     <div style="display:flex;align-items:center;gap:5px;">
       <div style="width:6px;height:6px;border-radius:50%;background:#d97706;flex-shrink:0;"></div>
-      <span style="font-size:10px;font-weight:600;color:#aaa;">Claude</span>
+      <span style="font-size:10px;font-weight:600;color:#aaa;">AI 사용량</span>
     </div>
     <div style="display:flex;align-items:center;gap:3px;">
       <button class="upd upd-mini" id="btnUpdateMini" title="새 버전으로 업데이트 후 재시작">⬆</button>
@@ -126,13 +186,17 @@ html,body{overflow:hidden;background:#1a1a1a;color:#e8e8e8;font-family:-apple-sy
 
 <script>
 const {ipcRenderer} = require('electron');
+const providers = require('./providers');
 
-let isMini = false, cache = null, timerInterval = null, updating = false;
+// 'uni'(통합·기본) → 'full'(Claude 상세) → 'mini' 순환
+const MODES = ['uni', 'full', 'mini'];
+let mode = 'uni', cache = null, timerInterval = null, updating = false;
 let snapX = 'right', snapY = 'top';
 let retryCount = 0, retryTimeout = null, countInterval = null;
 const RETRY_DELAYS = [30, 60, 120, 300];
-// CSS의 #uiMini / #uiFull 너비와 반드시 일치해야 한다
-const MINI_WIDTH = 144, FULL_WIDTH = 580;
+// CSS의 #uiUni / #uiFull / #uiMini 너비와 반드시 일치해야 한다
+const WIDTHS = { uni: 360, full: 580, mini: 144 };
+const VIEWS  = { uni: 'uiUni', full: 'uiFull', mini: 'uiMini' };
 
 function initDrag(el) {
   let drag = false, sx, sy;
@@ -150,20 +214,28 @@ function initDrag(el) {
     snapY = corner.snapY;
   });
 }
+initDrag(document.getElementById('titlebarUni'));
 initDrag(document.getElementById('titlebar'));
 initDrag(document.getElementById('titlebarMini'));
 
-document.getElementById('btnClose').addEventListener('click', () => ipcRenderer.send('close-window'));
-document.getElementById('btnMin').addEventListener('click', () => ipcRenderer.send('minimize-window'));
-document.getElementById('btnToggle').addEventListener('click', () => switchMode(true));
-document.getElementById('btnExpand').addEventListener('click', () => switchMode(false));
-document.getElementById('btnRefreshFull').addEventListener('click', () => { resetRetry(); loadData(true); });
-document.getElementById('btnRefreshMini').addEventListener('click', () => { resetRetry(); loadData(true); });
+['btnClose', 'btnCloseUni'].forEach(id =>
+  document.getElementById(id).addEventListener('click', () => ipcRenderer.send('close-window')));
+['btnMin', 'btnMinUni'].forEach(id =>
+  document.getElementById(id).addEventListener('click', () => ipcRenderer.send('minimize-window')));
+['btnRefreshUni', 'btnRefreshFull', 'btnRefreshMini'].forEach(id =>
+  document.getElementById(id).addEventListener('click', () => { resetRetry(); loadData(true); }));
+// 모드 전환 버튼은 모두 다음 모드로 순환시킨다
+['btnModeUni', 'btnToggle', 'btnExpand'].forEach(id =>
+  document.getElementById(id).addEventListener('click', nextMode));
+
 ipcRenderer.on('login-done', () => loadData(true));
 
 /* ── 자동 업데이트 ── */
-const updBtns = [document.getElementById('btnUpdateFull'), document.getElementById('btnUpdateMini')];
+const updBtns = [document.getElementById('btnUpdateUni'),
+                 document.getElementById('btnUpdateFull'),
+                 document.getElementById('btnUpdateMini')];
 const btnUpdFull = document.getElementById('btnUpdateFull');
+const btnUpdUni  = document.getElementById('btnUpdateUni');
 
 function showUpdateBadge(info) {
   const tip = `새 버전 ${info.behind}개 커밋${info.subject ? ` · ${info.subject}` : ''}\n클릭하면 업데이트 후 재시작합니다`;
@@ -174,6 +246,7 @@ function showUpdateBadge(info) {
 function endUpdateState(msg) {
   updBtns.forEach(b => { b.disabled = false; b.title = msg; });
   btnUpdFull.textContent = '⬆ 업데이트';
+  btnUpdUni.textContent  = '⬆ 업데이트';
   setFooter(msg);
   // 메시지를 잠시 보여준 뒤 평소 동작(경과 시간 표시·데이터 갱신)을 재개한다
   setTimeout(() => {
@@ -188,6 +261,7 @@ async function applyUpdate() {
   updating = true;
   updBtns.forEach(b => { b.disabled = true; });
   btnUpdFull.textContent = '⬆ 업데이트 중…';
+  btnUpdUni.textContent  = '⬆ 업데이트 중…';
   // 경과 시간 타이머와 재시도 카운트다운이 상태 메시지를 덮어쓰지 않도록 멈춘다
   stopTimer();
   resetRetry();
@@ -215,13 +289,24 @@ ipcRenderer.on('update-available', (e, info) => showUpdateBadge(info));
 // 시작 시 1회 확인 (리스너 등록이 끝난 뒤이므로 이벤트 유실 없음)
 ipcRenderer.invoke('check-update').then(res => { if (res && res.available) showUpdateBadge(res); });
 
-function switchMode(mini) {
-  isMini = mini;
-  document.getElementById('uiFull').style.display = mini ? 'none' : 'block';
-  document.getElementById('uiMini').style.display = mini ? 'block' : 'none';
-  ipcRenderer.send('set-size', mini ? { w: MINI_WIDTH, snapX, snapY } : { w: FULL_WIDTH, snapX, snapY });
-  if (cache) mini ? renderMini(cache) : renderFull(cache);
-  else resizeToContent();
+function setMode(next) {
+  mode = MODES.includes(next) ? next : 'uni';
+  for (const m of MODES) {
+    document.getElementById(VIEWS[m]).style.display = (m === mode) ? 'block' : 'none';
+  }
+  ipcRenderer.send('set-size', { w: WIDTHS[mode], snapX, snapY });
+  if (cache) render(cache); else resizeToContent();
+}
+
+function nextMode() {
+  setMode(MODES[(MODES.indexOf(mode) + 1) % MODES.length]);
+}
+
+// 현재 모드에 맞는 화면을 그린다
+function render(data) {
+  if (mode === 'uni')  renderUnified(data);
+  else if (mode === 'full') renderFull(data);
+  else renderMini(data);
 }
 
 function ringColor(p) { return p >= 80 ? '#ef4444' : p >= 50 ? '#f59e0b' : '#22c55e'; }
@@ -247,69 +332,130 @@ function cardBg(p) {
   return '#252525';
 }
 
+const esc = s => String(s == null ? '' : s)
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+// 재설정 문장을 좁은 칸에 맞게 줄인다 ("7일 0시간 후 초기화" → "7일 0시간 후")
+function shortReset(t) {
+  if (!t) return '';
+  return t.replace(/에?\s*(재설정됨|재설정|초기화)$/, '').replace(/^\(|\)$/g, '').trim();
+}
+
+const byId = (data, id) => (data.providers || []).find(p => p.id === id) || null;
+
+/* ── 통합 모드 ── */
+function renderUnified(data) {
+  const list = data.providers || [];
+
+  const metricHtml = (m) => {
+    // 크레딧처럼 한도가 아닌 값은 게이지를 채우지 않고 값만 보여준다
+    const showGauge = m.gauge !== false;
+    const pct = Math.max(0, Math.min(100, m.pct || 0));
+    const val = showGauge ? `${pct}%` : esc(m.value != null ? m.value : '—');
+    const col = showGauge ? ringColor(pct) : '#999';
+    const sub = shortReset(m.reset) || m.detail || '';
+    return `<div class="pm">
+      <div class="pmh"><span class="pml">${esc(m.label)}</span><span class="pmv" style="color:${col}">${val}</span></div>
+      <div class="ptrack"><div class="pfill" style="width:${showGauge ? pct : 0}%;background:${col}"></div></div>
+      <div class="psub" title="${esc(m.reset || m.detail || '')}">${esc(sub)}</div>
+    </div>`;
+  };
+
+  const rowHtml = (p) => {
+    let body;
+    if (p.state === 'auth') {
+      body = `<div class="pstate"><span>로그인이 필요합니다</span>
+        <button class="pbtn" data-login="${esc(p.id)}">로그인</button></div>`;
+    } else if (p.state === 'error') {
+      body = `<div class="pstate" title="${esc(p.message)}">
+        <span style="color:#a15c5c">${esc((p.message || '불러오지 못했습니다').slice(0, 34))}</span></div>`;
+    } else {
+      body = `<div class="pmetrics">${p.metrics.slice(0, 2).map(metricHtml).join('')}</div>`;
+    }
+    return `<div class="prow">
+      <div class="pwho">
+        <div class="pname"><div class="pdot" style="background:${esc(p.accent)}"></div>${esc(p.name)}</div>
+        <div class="pplan" title="${esc(p.note || p.plan || '')}">${esc(p.plan || '—')}</div>
+      </div>
+      ${body}
+    </div>`;
+  };
+
+  document.getElementById('uniContent').innerHTML =
+    `<div class="rows-uni">${list.map(rowHtml).join('')}</div>`;
+
+  const ok = list.filter(p => p.state === 'ok').length;
+  document.getElementById('connUni').textContent = list.length ? `${ok}/${list.length} 연결됨` : '';
+
+  document.querySelectorAll('#uniContent [data-login]').forEach(b =>
+    b.addEventListener('click', () => openLogin(b.getAttribute('data-login'))));
+  resizeToContent();
+}
+
+/* ── Claude 상세 모드 ── */
 function renderFull(data) {
-  if (data.plan) document.getElementById('planLabel').textContent = data.plan;
-  const s  = data.session       || { pct: 0, reset: '' };
-  const wa = data.weekly_all    || { pct: 0, reset: '' };
-  const wm = data.weekly_model  || null;
-  const ex = data.extra         || { pct: 0, reset: '' };
+  const c = byId(data, 'claude');
+  document.getElementById('planLabel').textContent = (c && c.plan) || '';
+
+  if (!c || c.state !== 'ok') {
+    const isAuth = c && c.state === 'auth';
+    document.getElementById('fullContent').innerHTML =
+      `<div class="body-full"><div class="state-box" style="padding:28px 14px;font-size:12px;">
+        ${isAuth ? '🔐 Claude 로그인이 필요합니다' : '⚠️ 데이터를 불러오지 못했습니다'}
+        <div style="color:#ef4444;font-size:11px;margin-top:4px;">${esc(c ? c.message : '')}</div>
+        ${isAuth ? '<button class="login-btn" data-login="claude">로그인하기</button>' : ''}
+      </div></div>`;
+    document.querySelectorAll('#fullContent [data-login]').forEach(b =>
+      b.addEventListener('click', () => openLogin('claude')));
+    resizeToContent();
+    return;
+  }
 
   const card = (lbl, pct, resetTxt, extraTxt) => {
-    const tip = (resetTxt || '').replace(/"/g, '&quot;');
+    const tip = esc(resetTxt || '');
     return `<div class="card-full" style="border-color:${cardBorder(pct)};background:${cardBg(pct)};">
-      <div class="clabel">${lbl}</div>
+      <div class="clabel">${esc(lbl)}</div>
       <div class="ring-wrap-full tip" data-tip="${tip || '재설정 정보 없음'}">
         ${makeRingFull(pct)}<div class="ring-center"><span class="rpct-full">${pct}%</span></div>
       </div>
-      <div class="rtxt"><div class="rval">${resetTxt || '—'}</div>${extraTxt ? `<div>${extraTxt}</div>` : ''}</div>
+      <div class="rtxt"><div class="rval">${esc(resetTxt) || '—'}</div>${extraTxt ? `<div>${esc(extraTxt)}</div>` : ''}</div>
     </div>`;
   };
 
+  const labelOf = m => ({ session: '현재 세션', weekly_all: '주간 · 전체', extra: '사용 크레딧' }[m.key]
+                        || `주간 · ${m.label}`);
   document.getElementById('fullContent').innerHTML =
-    `<div class="body-full">
-      ${card('현재 세션', s.pct, s.reset, '')}
-      <div class="divv"></div>
-      ${card('주간 · 전체', wa.pct, wa.reset, '')}
-      ${wm ? `<div class="divv"></div>${card(wm.label ? `주간 · ${wm.label}` : '주간 · 모델', wm.pct, wm.reset, '')}` : ''}
-      <div class="divv"></div>
-      ${card('사용 크레딧', ex.pct, ex.reset, data.extra_balance ? `잔액 ${data.extra_balance}` : (data.extra_used || ''))}
-    </div>`;
+    `<div class="body-full">${
+      c.metrics.map(m => card(labelOf(m), m.pct, m.reset, m.detail)).join('<div class="divv"></div>')
+    }</div>`;
   resizeToContent();
 }
 
+/* ── 미니 모드: 3사 요약 ── */
 function renderMini(data) {
-  const s  = data.session    || { pct: 0, reset: '' };
-  const wa = data.weekly_all || { pct: 0, reset: '' };
-  const item = (pct, label, reset) => {
-    const tip = (reset || '').replace(/"/g, '&quot;');
-    return `<div class="ring-item-mini">
-      <div class="ring-wrap-mini tip" data-tip="${tip || '재설정 정보 없음'}">
-        ${makeRingMini(pct)}<div class="ring-center"><span class="rpct-mini">${pct}%</span></div>
-      </div>
-      <div class="mlabel">${label}</div>
-    </div>`;
+  const list = data.providers || [];
+  const row = (p) => {
+    const cells = p.state === 'ok'
+      ? p.metrics.slice(0, 2).map(m => {
+          const showGauge = m.gauge !== false;
+          const pct = Math.max(0, Math.min(100, m.pct || 0));
+          return `<span class="mcell" style="color:${showGauge ? ringColor(pct) : '#888'}">${
+            showGauge ? pct + '%' : esc(m.value != null ? m.value : '—')}</span>`;
+        }).join('')
+      : `<span class="mcell" style="color:#6a6a6a;flex:2">${p.state === 'auth' ? '로그인' : '오류'}</span>`;
+    const tip = p.state === 'ok'
+      ? p.metrics.slice(0, 2).map(m => `${m.label} ${m.gauge === false ? m.value : m.pct + '%'}${m.reset ? ' · ' + shortReset(m.reset) : ''}`).join('\n')
+      : (p.message || '');
+    return `<div class="mrow tip" data-tip="${esc(tip)}">
+      <span class="pdot" style="background:${esc(p.accent)}"></span>
+      <span class="mname">${esc(p.name)}</span>${cells}</div>`;
   };
   document.getElementById('miniContent').innerHTML =
-    `<div class="grid-mini">
-      ${item(s.pct, '현재 세션', s.reset)}
-      <div class="vline"></div>
-      ${item(wa.pct, '주간 · 전체', wa.reset)}
-    </div>`;
+    `<div class="mini-rows">${list.map(row).join('')}</div>`;
   resizeToContent();
 }
 
-function renderError(data) {
-  const isAuth = data?.error === 'auth' || data?.error === 'no_cookie';
-  document.getElementById('fullContent').innerHTML =
-    `<div class="body-full"><div class="state-box" style="padding:28px 14px;font-size:12px;">
-      ${isAuth ? '🔐 로그인이 필요합니다' : '⚠️ 데이터를 불러오지 못했습니다'}
-      <div style="color:#ef4444;font-size:11px;margin-top:4px;">${data?.message || ''}</div>
-      ${isAuth ? '<button class="login-btn" onclick="openLogin()">로그인하기</button>' : ''}
-    </div></div>`;
-  document.getElementById('miniContent').innerHTML =
-    `<div class="grid-mini"><div class="state-box" style="padding:16px 8px;font-size:10px;grid-column:1/-1;color:#666;">연결 필요</div></div>`;
-  resizeToContent();
-}
+
 
 function fmtElapsed(ts) {
   const d = Math.round((Date.now() - ts) / 1000);
@@ -320,14 +466,14 @@ function fmtElapsed(ts) {
 
 function resizeToContent() {
   requestAnimationFrame(() => {
-    const el = document.getElementById(isMini ? 'uiMini' : 'uiFull');
+    const el = document.getElementById(VIEWS[mode]);
     ipcRenderer.send('resize-height', { h: el.offsetHeight, snapX, snapY });
   });
 }
 
+const FOOTER_IDS = ['updUni', 'updFull', 'updMini'];
 function setFooter(txt) {
-  document.getElementById('updFull').textContent = txt;
-  document.getElementById('updMini').textContent = txt;
+  FOOTER_IDS.forEach(id => { document.getElementById(id).textContent = txt; });
 }
 
 function stopTimer() {
@@ -364,16 +510,15 @@ function startTimer() {
   timerInterval = setInterval(() => {
     if (!cache?.fetched_at) return;
     const txt = fmtElapsed(cache.fetched_at);
-    document.getElementById('updFull').textContent = txt;
-    document.getElementById('updMini').textContent = txt;
+    FOOTER_IDS.forEach(id => { document.getElementById(id).textContent = txt; });
   }, 1000);
 }
 
 function setLoading(on) {
-  const bf = document.getElementById('btnRefreshFull');
-  const bm = document.getElementById('btnRefreshMini');
-  bf.disabled = on; bf.textContent = on ? '…' : '↻';
-  bm.disabled = on; bm.textContent = on ? '…' : '↻';
+  ['btnRefreshUni', 'btnRefreshFull', 'btnRefreshMini'].forEach(id => {
+    const b = document.getElementById(id);
+    b.disabled = on; b.textContent = on ? '…' : '↻';
+  });
 }
 
 function parseHTML(html) {
@@ -481,29 +626,51 @@ function parseHTML(html) {
   return result;
 }
 
-async function loadData(force = false) {
-  if (updating) return; // 업데이트·재시작 중에는 데이터 갱신을 건드리지 않는다
-  setLoading(true);
-  if (!force && cache && (Date.now() - cache.fetched_at) < 5 * 60 * 1000) {
-    isMini ? renderMini(cache) : renderFull(cache);
-    setLoading(false);
-    return;
+// 조회 결과(HTML 또는 오류) 하나를 정규화된 제공자 상태로 바꾼다
+function toProviderState(res) {
+  const p = providers.get(res.id);
+  const base = {
+    id: res.id, name: p ? p.name : res.id, accent: p ? p.accent : '#666',
+    plan: '', note: '', metrics: [], state: 'error', message: '',
+  };
+  if (res.error) {
+    return Object.assign(base, {
+      state: res.error === 'auth' ? 'auth' : 'error',
+      message: res.message || res.error,
+    });
   }
-  const res = await ipcRenderer.invoke('fetch-usage');
-  setLoading(false);
-  if (res.html) {
-    cache = parseHTML(res.html);
-    isMini ? renderMini(cache) : renderFull(cache);
-    resetRetry();
-    startTimer();
-  } else {
-    renderError(res);
-    if (res.error !== 'auth') scheduleRetry();
-  }
+  return providers.parseHtml(res.id, res.html, DOMParser);
 }
 
-function openLogin() { ipcRenderer.send('open-login'); }
+async function loadData(force = false) {
+  if (updating) return; // 업데이트·재시작 중에는 데이터 갱신을 건드리지 않는다
+  if (!force && cache && (Date.now() - cache.fetched_at) < 5 * 60 * 1000) {
+    render(cache);
+    return;
+  }
+  setLoading(true);
+  let results;
+  try {
+    results = await ipcRenderer.invoke('fetch-all', providers.ids);
+  } catch (e) {
+    results = providers.ids.map(id => ({ id, error: 'unknown', message: e.message }));
+  }
+  setLoading(false);
 
+  const list = (results || []).map(toProviderState);
+  cache = { providers: list, fetched_at: Date.now() };
+  render(cache);
+
+  // 하나라도 성공하면 정상으로 본다. 전부 실패했고 그 이유가 로그인 때문이 아니라면 재시도.
+  const anyOk   = list.some(p => p.state === 'ok');
+  const allAuth = list.length > 0 && list.every(p => p.state === 'auth');
+  if (anyOk || allAuth) { resetRetry(); startTimer(); }
+  else scheduleRetry();
+}
+
+function openLogin(id) { ipcRenderer.send('open-login', id || 'claude'); }
+
+setMode('uni');
 loadData(true);
 setInterval(() => loadData(false), 5 * 60 * 1000);
 </script>
