@@ -236,8 +236,14 @@ initDrag(document.getElementById('titlebarMini'));
 ['btnModeUni', 'btnToggle', 'btnExpand'].forEach(id =>
   document.getElementById(id).addEventListener('click', nextMode));
 
-ipcRenderer.on('login-done', async () => {
-  try { chromeInfo = await ipcRenderer.invoke('chrome-status') || chromeInfo; } catch (e) {}
+ipcRenderer.on('login-done', async (e, id, info) => {
+  try { chromeInfo = await ipcRenderer.invoke('chrome-status') || chromeInfo; } catch (err) {}
+  // 로그인 창을 닫았는데 인증 쿠키가 없으면 그 창의 로그인이 위젯에 반영되지 않은 것이다.
+  // (별도 데스크톱 앱이나 다른 브라우저에서 한 로그인은 위젯 세션과 무관하다)
+  if (info && info.authed === false) {
+    const p = providers.get(id);
+    setFooter(`${p ? p.name : id} 로그인이 저장되지 않았습니다 — 위젯 로그인 창에서 로그인해 주세요`);
+  }
   loadData(true);
 });
 
