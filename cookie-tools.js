@@ -1,7 +1,8 @@
-// 예전 버전은 세 제공자가 session.defaultSession 을 공유했다.
-// 제공자별 파티션(persist:<id>)으로 나누면서 그때까지 쓰던 로그인이 끊겼다.
-// 파티션을 처음 쓸 때 defaultSession 에 남아 있는 해당 도메인 쿠키를 옮겨와
-// 다시 로그인하지 않아도 되게 한다.
+// 제공자 도메인 단위로 쿠키를 다루는 도구.
+//
+// 세 제공자는 session.defaultSession 을 공유한다. 도메인이 서로 다르므로
+// 서비스마다 다른 계정을 써도 충돌하지 않는다. 계정을 바꿀 때만
+// 해당 제공자의 도메인 쿠키를 지우면 된다.
 
 function baseDomain(domain) {
   return String(domain || '').replace(/^\./, '').toLowerCase();
@@ -58,4 +59,29 @@ async function migrateCookies(fromSes, toSes, domains) {
   return { found: mine.length, copied };
 }
 
-module.exports = { migrateCookies, matchesDomains, cookieUrl, toSetDetails, baseDomain };
+// 제공자 도메인에 해당하는 쿠키만 추린다
+async function cookiesFor(ses, domains) {
+  try {
+    const all = await ses.cookies.get({});
+    return all.filter(c => matchesDomains(c.domain, domains));
+  } catch (e) {
+    return [];
+  }
+}
+
+// 계정 전환: 해당 제공자의 쿠키만 지운다. 다른 서비스 로그인은 그대로 남는다.
+// 지우지 않으면 사이트가 기존 로그인을 인정해 계정 선택 화면이 나오지 않는다.
+async function removeFor(ses, domains) {
+  const mine = await cookiesFor(ses, domains);
+  let removed = 0;
+  for (const c of mine) {
+    try { await ses.cookies.remove(cookieUrl(c), c.name); removed++; }
+    catch (e) { /* 개별 실패는 건너뛴다 */ }
+  }
+  return { found: mine.length, removed };
+}
+
+module.exports = {
+  migrateCookies, cookiesFor, removeFor,
+  matchesDomains, cookieUrl, toSetDetails, baseDomain,
+};
