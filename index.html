@@ -406,17 +406,16 @@ function renderUnified(data) {
       // 어느 쪽이든 로그인할 방법은 항상 있어야 한다.
       const full = p.state === 'auth' ? '로그인이 필요합니다' : (p.message || '불러오지 못했습니다');
       // 버튼이 밀려나지 않도록 짧게 줄인다. 전체 문구는 title 로 볼 수 있다.
-      const msg = p.state === 'auth' ? '로그인 필요'
+      const msg = p.state === 'auth' ? '연결 필요'
                 : /찾지 못했/.test(full) ? '사용량 없음'
                 : /시간 초과|timeout/i.test(full) ? '시간 초과'
                 : full.length > 16 ? full.slice(0, 16) + '…' : full;
       const col = p.state === 'auth' ? '#6a6a6a' : '#a15c5c';
-      // 위젯 로그인 창(내장) 또는 평소 쓰는 실제 브라우저에서 열기 — 둘 다 제공
+      // 평소 쓰는 실제 브라우저에서 사용량 페이지를 열어 확장 프로그램으로 연결한다
       body = `<div class="pstate" title="${esc(full)}">
         <span style="color:${col};flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(msg)}</span>
-        <button class="pbtn" data-login="${esc(p.id)}">로그인</button>
-        <button class="pbtn pbtn-ext" data-open-ext="${esc(p.id)}"
-          title="평소 쓰는 브라우저에서 새 탭으로 엽니다. 이미 로그인돼 있으면 그대로 사용됩니다. (확장 프로그램과 함께 쓰세요)">브라우저</button></div>`;
+        <button class="pbtn pbtn-ext" data-connect="${esc(p.id)}"
+          title="평소 쓰는 브라우저에서 사용량 페이지를 엽니다. 확장 프로그램이 그 값을 위젯으로 보냅니다.">연결하기</button></div>`;
     }
     return `<div class="prow">
       <div class="pwho">
@@ -436,12 +435,10 @@ function renderUnified(data) {
   const ok = list.filter(p => p.state === 'ok').length;
   document.getElementById('connUni').textContent = list.length ? `${ok}/${list.length} 연결됨` : '';
 
-  document.querySelectorAll('#uniContent [data-login]').forEach(b =>
-    b.addEventListener('click', () => openLogin(b.getAttribute('data-login'))));
   document.querySelectorAll('#uniContent [data-swap]').forEach(b =>
     b.addEventListener('click', () => switchAccount(b.getAttribute('data-swap'))));
-  document.querySelectorAll('#uniContent [data-open-ext]').forEach(b =>
-    b.addEventListener('click', () => openInBrowser(b.getAttribute('data-open-ext'))));
+  document.querySelectorAll('#uniContent [data-connect]').forEach(b =>
+    b.addEventListener('click', () => connectProvider(b.getAttribute('data-connect'))));
   resizeToContent();
 }
 
@@ -454,12 +451,12 @@ function renderFull(data) {
     const isAuth = c && c.state === 'auth';
     document.getElementById('fullContent').innerHTML =
       `<div class="body-full"><div class="state-box" style="padding:28px 14px;font-size:12px;">
-        ${isAuth ? '🔐 Claude 로그인이 필요합니다' : '⚠️ 데이터를 불러오지 못했습니다'}
+        ${isAuth ? '🔗 Claude 연결이 필요합니다' : '⚠️ 데이터를 불러오지 못했습니다'}
         <div style="color:#ef4444;font-size:11px;margin-top:4px;">${esc(c ? c.message : '')}</div>
-        ${isAuth ? '<button class="login-btn" data-login="claude">로그인하기</button>' : ''}
+        ${isAuth ? '<button class="login-btn" data-connect="claude">연결하기</button>' : ''}
       </div></div>`;
-    document.querySelectorAll('#fullContent [data-login]').forEach(b =>
-      b.addEventListener('click', () => openLogin('claude')));
+    document.querySelectorAll('#fullContent [data-connect]').forEach(b =>
+      b.addEventListener('click', () => connectProvider('claude')));
     resizeToContent();
     return;
   }
@@ -740,14 +737,12 @@ async function loadData(force = false) {
   else scheduleRetry();
 }
 
-function openLogin(id) { ipcRenderer.send('open-login', id || 'claude'); }
-
-// 평소 쓰는 실제 브라우저에서 사용량/로그인 페이지를 새 탭으로 연다.
-// 확장 프로그램이 설치돼 있으면, 여기서 로그인·조회한 값이 위젯으로 넘어온다.
-async function openInBrowser(id) {
+// 평소 쓰는 실제 브라우저에서 사용량 페이지를 새 탭으로 연다.
+// 그 페이지에서 확장 프로그램이 값을 읽어 위젯으로 보낸다(= 연결).
+async function connectProvider(id) {
   const res = await ipcRenderer.invoke('open-external', id);
-  if (res && res.ok) setFooter('브라우저에서 열었습니다 — 확장 프로그램이 있으면 자동으로 반영됩니다');
-  else setFooter(`브라우저 열기 실패: ${(res && res.message) || ''}`);
+  if (res && res.ok) setFooter('브라우저에서 사용량 페이지를 열었습니다 — 확장 프로그램이 값을 가져옵니다');
+  else setFooter(`열기 실패: ${(res && res.message) || ''}`);
 }
 
 // 계정 전환은 해당 제공자에서 로그아웃시키므로 확인을 받는다

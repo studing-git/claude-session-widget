@@ -431,11 +431,6 @@ function openLoginWindow(provider) {
   return w;
 }
 
-ipcMain.on('open-login', (e, id) => {
-  const provider = providers.get(id);
-  if (provider) openLoginWindow(provider);
-});
-
 // 계정 전환: 해당 제공자의 쿠키·저장소를 비운 뒤 로그인 창을 연다.
 // 비우지 않으면 사이트가 기존 쿠키를 보고 곧바로 로그인 상태로 넘어가
 // 계정 선택 화면이 나오지 않는다.
