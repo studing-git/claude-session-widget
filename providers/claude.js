@@ -7,6 +7,9 @@ const id      = 'claude';
 const name    = 'Claude';
 const accent  = '#d97706';
 const url     = 'https://claude.ai/settings/usage';
+// 제공자마다 쿠키를 분리한다. 서비스별로 다른 계정을 쓸 수 있고,
+// 계정 전환 시 이 파티션만 비우면 다른 서비스 로그인은 그대로 남는다.
+const partition = 'persist:claude';
 const loginUrl = 'https://claude.ai/login';
 
 // 이 선택자가 나타날 때까지 기다린 뒤 HTML을 수집한다
@@ -111,4 +114,4 @@ function parse(doc) {
   return { plan, metrics, meterCount: bars.length };
 }
 
-module.exports = { id, name, accent, url, loginUrl, readySelector, parse };
+module.exports = { id, name, accent, url, loginUrl, partition, readySelector, parse };

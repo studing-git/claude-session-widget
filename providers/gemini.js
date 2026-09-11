@@ -7,6 +7,9 @@ const id       = 'gemini';
 const name     = 'Gemini';
 const accent   = '#4285f4';
 const url      = 'https://gemini.google.com/usage';
+// 제공자마다 쿠키를 분리한다. 서비스별로 다른 계정을 쓸 수 있고,
+// 계정 전환 시 이 파티션만 비우면 다른 서비스 로그인은 그대로 남는다.
+const partition = 'persist:gemini';
 const loginUrl = 'https://gemini.google.com/';
 
 const readySelector = '[data-test-id="gxu-currently"], usage-metrics-window';
@@ -51,4 +54,4 @@ function parse(doc) {
   return { plan, metrics };
 }
 
-module.exports = { id, name, accent, url, loginUrl, readySelector, parse };
+module.exports = { id, name, accent, url, loginUrl, partition, readySelector, parse };
