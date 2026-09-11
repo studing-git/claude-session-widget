@@ -3,18 +3,19 @@ process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true';
 const { app, BrowserWindow, BrowserView, ipcMain, session, screen } = require('electron');
 const updater   = require('./updater');
 const providers = require('./providers');
+const identity  = require('./browser-identity');
 
 const SNAP_MARGIN = 0;
 const UPDATE_CHECK_INTERVAL = 30 * 60 * 1000;
 
 let mainWindow, updateTimer;
 
-// Electron 기본 UA에는 앱 이름과 "Electron/xx" 토큰이 들어간다.
-// Google은 이런 UA를 임베디드 브라우저로 보고 로그인을 거부할 수 있으므로
-// 평범한 Chrome UA로 맞춘다.
-app.userAgentFallback = app.userAgentFallback
-  .replace(new RegExp('\\s*' + app.getName().replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\/[\\d.]+', 'i'), '')
-  .replace(/\s*Electron\/[\d.]+/i, '');
+// Google 은 임베디드 브라우저로 판단되면 로그인을 거부한다
+// ("브라우저 또는 앱이 안전하지 않을 수 있습니다").
+// UA 문자열뿐 아니라 Sec-CH-UA 클라이언트 힌트에도 "Electron" 이 들어가므로
+// 세션마다 둘 다 평범한 Chrome 값으로 맞춘다 (browser-identity.js).
+const CHROME_UA = identity.chromeUserAgent();
+app.userAgentFallback = CHROME_UA;
 
 function getSnapPosition(w, h, snapX, snapY) {
   const [wx, wy] = mainWindow.getPosition();
@@ -137,9 +138,24 @@ ipcMain.handle('snap-to-edge', () => {
 
 // 제공자마다 독립된 영구 세션을 쓴다. 서비스별로 다른 계정을 쓸 수 있고,
 // 계정 전환 시 해당 파티션만 비우면 다른 서비스 로그인은 유지된다.
+const identityApplied = new Set();
 function sessionFor(provider) {
-  return provider.partition ? session.fromPartition(provider.partition) : session.defaultSession;
+  const ses = provider.partition ? session.fromPartition(provider.partition) : session.defaultSession;
+  // 세션마다 한 번만 적용한다. onBeforeSendHeaders 는 마지막 리스너만 유효하므로
+  // 중복 등록하면 앞의 것이 조용히 대체된다.
+  if (!identityApplied.has(ses)) {
+    identity.applyTo(ses);
+    identityApplied.add(ses);
+  }
+  return ses;
 }
+
+// 사이트가 실제로 무엇을 보는지 확인용. 로그인이 막히면 이 값부터 본다.
+ipcMain.handle('browser-identity', () => ({
+  userAgent: CHROME_UA,
+  brands: identity.chromeBrands(),
+  electronInUA: /Electron/i.test(CHROME_UA),
+}));
 
 // 로그인 페이지로 튕겼는지 판별. 제공자마다 로그인 URL 모양이 달라 넉넉하게 본다.
 function looksLikeLogin(url) {
