@@ -81,7 +81,21 @@ async function removeFor(ses, domains) {
   return { found: mine.length, removed };
 }
 
+// 로그인 여부 판정.
+// 쿠키 개수만 보면 분석·기기 쿠키 때문에 로그인된 것처럼 착각하기 쉽다
+// (예: claude.ai 에 _fbp·anthropic-device-id 가 20개 있어도 sessionKey 가 없으면 미로그인).
+// 그래서 인증 쿠키 이름으로만 판단한다.
+function hasAuthCookie(cookies, authNames) {
+  if (!authNames || !authNames.length) return null;      // 판단 근거 없음
+  const names = new Set(cookies.map(c => c.name));
+  return authNames.some(n => names.has(n));
+}
+
+async function isAuthenticated(ses, domains, authNames) {
+  return hasAuthCookie(await cookiesFor(ses, domains), authNames);
+}
+
 module.exports = {
-  migrateCookies, cookiesFor, removeFor,
+  migrateCookies, cookiesFor, removeFor, hasAuthCookie, isAuthenticated,
   matchesDomains, cookieUrl, toSetDetails, baseDomain,
 };

@@ -17,6 +17,9 @@ const loginUrl = 'https://chatgpt.com/auth/login';
 // 예전 defaultSession 에서 로그인을 물려받을 때 옮겨올 쿠키 도메인
 const cookieDomains = ['chatgpt.com', 'openai.com'];
 
+// oai-did 같은 기기 쿠키는 로그인과 무관하므로 세션 토큰만 본다.
+const authCookies = ['__Secure-next-auth.session-token', '__Secure-next-auth.session-token.0', '_account'];
+
 const readySelector = '[id$="-content-Usage"]';
 
 const SCOPE_NOTE = 'Codex · Work';
@@ -91,4 +94,4 @@ function parse(doc) {
   return { plan: SCOPE_NOTE, metrics, note: 'Chat 대화 미포함' };
 }
 
-module.exports = { id, name, accent, url, loginUrl, cookieDomains, readySelector, parse, toUsedPct };
+module.exports = { id, name, accent, url, loginUrl, cookieDomains, authCookies, readySelector, parse, toUsedPct };
