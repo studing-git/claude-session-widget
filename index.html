@@ -203,8 +203,6 @@ const providers = require('./providers');
 // 'uni'(통합·기본) → 'full'(Claude 상세) → 'mini' 순환
 const MODES = ['uni', 'full', 'mini'];
 let mode = 'uni', cache = null, timerInterval = null, updating = false;
-// 외부 Chrome 사용 가능 여부와 제공자별 조회 방식
-let chromeInfo = { available: false, backends: {} };
 let extInfo = { connected: [] };
 const viaExtension = id => (extInfo.connected || []).includes(id) ||
   ((cache && cache.providers || []).some(p => p.id === id && p.fromExtension));
@@ -246,7 +244,6 @@ initDrag(document.getElementById('titlebarMini'));
   document.getElementById(id).addEventListener('click', nextMode));
 
 ipcRenderer.on('login-done', async (e, id, info) => {
-  try { chromeInfo = await ipcRenderer.invoke('chrome-status') || chromeInfo; } catch (err) {}
   // 로그인 창을 닫았는데 인증 쿠키가 없으면 그 창의 로그인이 위젯에 반영되지 않은 것이다.
   // (별도 데스크톱 앱이나 다른 브라우저에서 한 로그인은 위젯 세션과 무관하다)
   if (info && info.authed === false) {
@@ -324,9 +321,6 @@ ipcRenderer.on('extension-report', () => {
 ipcRenderer.invoke('session-report')
   .then(rows => { if (rows) { console.log('[진단] 제공자별 쿠키 상태'); console.table(rows); } })
   .catch(() => {});
-ipcRenderer.invoke('chrome-status').then(info => {
-  if (info) { chromeInfo = info; if (cache) render(cache); }
-}).catch(() => {});
 
 function setMode(next) {
   mode = MODES.includes(next) ? next : 'uni';
@@ -381,7 +375,6 @@ function shortReset(t) {
 }
 
 const byId = (data, id) => (data.providers || []).find(p => p.id === id) || null;
-const viaChrome = id => (chromeInfo.backends || {})[id] === 'chrome';
 
 /* ── 통합 모드 ── */
 function renderUnified(data) {
@@ -418,24 +411,17 @@ function renderUnified(data) {
                 : /시간 초과|timeout/i.test(full) ? '시간 초과'
                 : full.length > 16 ? full.slice(0, 16) + '…' : full;
       const col = p.state === 'auth' ? '#6a6a6a' : '#a15c5c';
-      // Electron 내장 브라우저는 Google 에 임베디드 브라우저로 막히는 경우가 있어
-      // 진짜 Chrome 으로 로그인하는 선택지를 함께 준다.
-      const chromeBtn = chromeInfo.available
-        ? `<button class="pbtn pbtn-chrome" data-login-chrome="${esc(p.id)}"
-             title="진짜 Chrome 창으로 로그인합니다. Google 로그인이 막힐 때 사용하세요.">Chrome</button>`
-        : '';
+      // 위젯 로그인 창(내장) 또는 평소 쓰는 실제 브라우저에서 열기 — 둘 다 제공
       body = `<div class="pstate" title="${esc(full)}">
         <span style="color:${col};flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(msg)}</span>
-        <button class="pbtn" data-login="${esc(p.id)}">로그인</button>${chromeBtn}</div>`;
+        <button class="pbtn" data-login="${esc(p.id)}">로그인</button>
+        <button class="pbtn pbtn-ext" data-open-ext="${esc(p.id)}"
+          title="평소 쓰는 브라우저에서 새 탭으로 엽니다. 이미 로그인돼 있으면 그대로 사용됩니다. (확장 프로그램과 함께 쓰세요)">브라우저</button></div>`;
     }
     return `<div class="prow">
       <div class="pwho">
         <div class="pname"><div class="pdot" style="background:${esc(p.accent)}"></div>${esc(p.name)}</div>
         <div class="pplan" title="${esc(p.note || p.plan || '')}">${esc(p.plan || '—')}</div>
-        ${viaChrome(p.id)
-          ? `<button class="pchrome" data-unchrome="${esc(p.id)}"
-               title="이 서비스는 Chrome 프로필로 조회 중입니다. 위젯 로그인 창을 쓰려면 클릭해 되돌리세요.">Chrome 조회</button>`
-          : ''}
       </div>
       ${body}
       ${p.state === 'ok'
@@ -454,10 +440,8 @@ function renderUnified(data) {
     b.addEventListener('click', () => openLogin(b.getAttribute('data-login'))));
   document.querySelectorAll('#uniContent [data-swap]').forEach(b =>
     b.addEventListener('click', () => switchAccount(b.getAttribute('data-swap'))));
-  document.querySelectorAll('#uniContent [data-login-chrome]').forEach(b =>
-    b.addEventListener('click', () => openLoginChrome(b.getAttribute('data-login-chrome'))));
-  document.querySelectorAll('#uniContent [data-unchrome]').forEach(b =>
-    b.addEventListener('click', () => useElectronBackend(b.getAttribute('data-unchrome'))));
+  document.querySelectorAll('#uniContent [data-open-ext]').forEach(b =>
+    b.addEventListener('click', () => openInBrowser(b.getAttribute('data-open-ext'))));
   resizeToContent();
 }
 
@@ -758,22 +742,12 @@ async function loadData(force = false) {
 
 function openLogin(id) { ipcRenderer.send('open-login', id || 'claude'); }
 
-// Chrome 방식을 해제하고 위젯 세션으로 되돌린다
-async function useElectronBackend(id) {
-  await ipcRenderer.invoke('set-backend', id, 'electron');
-  try { chromeInfo = await ipcRenderer.invoke('chrome-status') || chromeInfo; } catch (e) {}
-  setFooter('위젯 세션으로 조회합니다 — 로그인이 필요하면 로그인 버튼을 눌러 주세요');
-  loadData(true);
-}
-
-// 진짜 Chrome 창으로 로그인. 창을 닫으면 해당 제공자가 Chrome 방식으로 전환된다.
-async function openLoginChrome(id) {
-  const res = await ipcRenderer.invoke('open-login-chrome', id);
-  if (res && res.ok) {
-    setFooter('Chrome 에서 로그인한 뒤 창을 닫아 주세요');
-  } else {
-    setFooter(`Chrome 로그인 실패: ${(res && res.message) || ''}`);
-  }
+// 평소 쓰는 실제 브라우저에서 사용량/로그인 페이지를 새 탭으로 연다.
+// 확장 프로그램이 설치돼 있으면, 여기서 로그인·조회한 값이 위젯으로 넘어온다.
+async function openInBrowser(id) {
+  const res = await ipcRenderer.invoke('open-external', id);
+  if (res && res.ok) setFooter('브라우저에서 열었습니다 — 확장 프로그램이 있으면 자동으로 반영됩니다');
+  else setFooter(`브라우저 열기 실패: ${(res && res.message) || ''}`);
 }
 
 // 계정 전환은 해당 제공자에서 로그아웃시키므로 확인을 받는다
