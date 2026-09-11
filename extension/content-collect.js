@@ -39,6 +39,24 @@
     return true;
   }
 
+  // ChatGPT 는 사용량이 앱 안의 해시 라우트(#settings/Usage)라, 새 탭으로 열어도
+  // 설정 패널이 자동으로 안 열릴 수 있다. 설정을 요청한 탭(해시에 settings 포함)에
+  // 한해, 라우트를 한 번 흔들어 설정→사용량 화면을 열도록 유도한다.
+  // 정상 채팅 중인 탭(해시에 settings 없음)은 건드리지 않는다.
+  let nudged = false;
+  function nudgeChatgptUsage() {
+    if (nudged) return;
+    if (!/(^|\.)chatgpt\.com$/.test(location.hostname)) return;
+    if (!/settings/i.test(location.hash)) return;   // 우리가 연 사용량 탭에서만
+    nudged = true;
+    try {
+      // 설정 모달을 먼저 열고(#settings) 잠시 뒤 사용량 탭(#settings/Usage)으로.
+      // 값이 같으면 hashchange 가 안 나므로 다른 값을 거쳐 target 으로 이동한다.
+      location.hash = 'settings';
+      setTimeout(() => { location.hash = 'settings/Usage'; }, 150);
+    } catch (e) {}
+  }
+
   // SPA 라 값이 늦게 채워진다. 나타날 때까지 폴링하다가, 한 번 성공하면
   // 이후에도 주기적으로 갱신해 최신 값을 유지한다.
   let settled = false;
@@ -51,8 +69,9 @@
       clearInterval(poll);
       // 페이지가 열려 있는 동안 2분마다 갱신
       setInterval(report, 120000);
-    } else if (tries > 40) {          // 약 20초 뒤 포기
-      clearInterval(poll);
+    } else {
+      if (tries === 4) nudgeChatgptUsage();   // 약 2초 기다렸는데 안 뜨면 한 번 유도
+      if (tries > 40) clearInterval(poll);     // 약 20초 뒤 포기
     }
   }, 500);
 

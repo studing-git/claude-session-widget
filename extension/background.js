@@ -9,8 +9,9 @@ const base = `http://127.0.0.1:${BRIDGE.port}`;
 const USAGE_URLS = {
   claude:  'https://claude.ai/settings/usage',
   gemini:  'https://gemini.google.com/usage',
-  // ChatGPT 는 해시 라우트(#settings/Usage)라 배경 탭으로 자동 진입이 불확실하다.
-  // 사용자가 사용량 화면을 열어두면 콘텐츠 스크립트가 알아서 보고한다.
+  // ChatGPT 는 해시 라우트(#settings/Usage). 콘텐츠 스크립트가 설정→사용량을
+  // 열도록 유도하므로 배경 갱신에도 포함한다(그래도 실패하면 사용자가 직접 열면 된다).
+  chatgpt: 'https://chatgpt.com/#settings/Usage',
 };
 
 async function forward(payload) {
