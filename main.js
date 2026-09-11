@@ -368,6 +368,12 @@ function openLoginWindow(provider) {
   w.on('page-title-updated', (e) => { e.preventDefault(); });
 
   const notify = (authed) => {
+    // 여기서 한 로그인은 Electron 세션에 저장된다. 조회 방식이 chrome 으로
+    // 남아 있으면 로그인되지 않은 Chrome 프로필을 계속 읽어 영원히 연결되지 않는다.
+    if (authed && backendOf(provider.id) === 'chrome') {
+      settings.setBackend(userDataDir(), provider.id, 'electron');
+      console.log(`[login] ${provider.id}: 조회 방식을 electron 으로 되돌림`);
+    }
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('login-done', provider.id, { authed });
     }
