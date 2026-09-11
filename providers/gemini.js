@@ -12,6 +12,9 @@ const url      = 'https://gemini.google.com/usage';
 const partition = 'persist:gemini';
 const loginUrl = 'https://gemini.google.com/';
 
+// 예전 defaultSession 에서 로그인을 물려받을 때 옮겨올 쿠키 도메인
+const cookieDomains = ['google.com', 'googleusercontent.com'];
+
 const readySelector = '[data-test-id="gxu-currently"], usage-metrics-window';
 
 function pctOf(el) {
@@ -54,4 +57,4 @@ function parse(doc) {
   return { plan, metrics };
 }
 
-module.exports = { id, name, accent, url, loginUrl, partition, readySelector, parse };
+module.exports = { id, name, accent, url, loginUrl, partition, cookieDomains, readySelector, parse };

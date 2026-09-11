@@ -7,6 +7,7 @@ const providers = require('./providers');
 const identity  = require('./browser-identity');
 const chrome    = require('./chrome-runner');
 const settings  = require('./settings');
+const migrate   = require('./session-migrate');
 
 const SNAP_MARGIN = 0;
 const UPDATE_CHECK_INTERVAL = 30 * 60 * 1000;
@@ -141,6 +142,31 @@ ipcMain.handle('snap-to-edge', () => {
 
 // 제공자마다 독립된 영구 세션을 쓴다. 서비스별로 다른 계정을 쓸 수 있고,
 // 계정 전환 시 해당 파티션만 비우면 다른 서비스 로그인은 유지된다.
+// 예전 버전의 로그인을 파티션으로 한 번만 물려받는다.
+// (PR 이전에는 모든 제공자가 defaultSession 을 공유했다)
+const migrations = new Map();
+function ensureMigrated(provider) {
+  if (!provider.partition || !provider.cookieDomains) return Promise.resolve();
+  if (migrations.has(provider.id)) return migrations.get(provider.id);
+
+  const key = 'migrated:' + provider.id;
+  const done = settings.read(userDataDir())[key];
+  if (done) { migrations.set(provider.id, Promise.resolve()); return migrations.get(provider.id); }
+
+  const task = migrate
+    .migrateCookies(session.defaultSession, sessionFor(provider), provider.cookieDomains)
+    .then(res => {
+      const data = settings.read(userDataDir());
+      data[key] = true;
+      settings.write(userDataDir(), data);
+      if (res.copied) console.log(`[migrate] ${provider.id}: 쿠키 ${res.copied}/${res.found}개를 이어받았습니다`);
+      return res;
+    })
+    .catch(() => {});
+  migrations.set(provider.id, task);
+  return task;
+}
+
 const identityApplied = new Set();
 function sessionFor(provider) {
   const ses = provider.partition ? session.fromPartition(provider.partition) : session.defaultSession;
@@ -250,10 +276,10 @@ function fetchViaChrome(provider) {
     .then(res => Object.assign({ id: provider.id }, res));
 }
 
-function fetchOne(provider) {
-  return backendOf(provider.id) === 'chrome'
-    ? fetchViaChrome(provider)
-    : fetchProviderHtml(provider);
+async function fetchOne(provider) {
+  if (backendOf(provider.id) === 'chrome') return fetchViaChrome(provider);
+  await ensureMigrated(provider);      // 예전 로그인을 물려받은 뒤 조회한다
+  return fetchProviderHtml(provider);
 }
 
 ipcMain.handle('chrome-status', () => ({
@@ -322,9 +348,11 @@ function openLoginWindow(provider) {
   return w;
 }
 
-ipcMain.on('open-login', (e, id) => {
+ipcMain.on('open-login', async (e, id) => {
   const provider = providers.get(id);
-  if (provider) openLoginWindow(provider);
+  if (!provider) return;
+  await ensureMigrated(provider);
+  openLoginWindow(provider);
 });
 
 // 계정 전환: 해당 제공자의 쿠키·저장소를 비운 뒤 로그인 창을 연다.

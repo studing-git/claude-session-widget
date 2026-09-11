@@ -17,6 +17,9 @@ const partition = 'persist:chatgpt';
 const loginUrl = 'https://chatgpt.com/auth/login';
 
 // 사용량 탭 패널이 그려질 때까지 기다린다
+// 예전 defaultSession 에서 로그인을 물려받을 때 옮겨올 쿠키 도메인
+const cookieDomains = ['chatgpt.com', 'openai.com'];
+
 const readySelector = '[id$="-content-Usage"]';
 
 const SCOPE_NOTE = 'Codex · Work';
@@ -91,4 +94,4 @@ function parse(doc) {
   return { plan: SCOPE_NOTE, metrics, note: 'Chat 대화 미포함' };
 }
 
-module.exports = { id, name, accent, url, loginUrl, partition, readySelector, parse, toUsedPct };
+module.exports = { id, name, accent, url, loginUrl, partition, cookieDomains, readySelector, parse, toUsedPct };
