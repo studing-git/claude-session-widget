@@ -66,8 +66,10 @@ html,body{overflow:hidden;background:#1a1a1a;color:#e8e8e8;font-family:-apple-sy
 .footer-mini{display:flex;justify-content:center;align-items:center;padding:4px 10px 6px;border-top:1px solid #2a2a2a;}
 .mini-rows{padding:6px 8px 6px;}
 .mrow{display:flex;align-items:center;gap:5px;padding:4px 2px;cursor:default;}
-.mname{font-size:9px;color:#aaa;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .mcell{font-size:10px;font-weight:700;width:30px;text-align:right;flex-shrink:0;}
+/* 미니 모드는 이름 없이 브랜드 아이콘만 둔다. margin-right:auto 로 숫자 칸을 오른쪽에 붙인다 */
+.micon{width:14px;height:14px;flex-shrink:0;margin-right:auto;display:flex;align-items:center;}
+.micon svg{width:100%;height:100%;display:block;}
 
 /* 미니 모드는 창이 좁아 기본 툴팁이 창 밖으로 잘린다.
    재설정 정보를 볼 수 있는 유일한 수단이므로 창 폭에 맞춰 고정 배치한다. */
@@ -83,7 +85,11 @@ html,body{overflow:hidden;background:#1a1a1a;color:#e8e8e8;font-family:-apple-sy
 .pwho{width:80px;flex-shrink:0;}
 .pname{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:#ddd;}
 .pdot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
-.pplan{font-size:8.5px;color:#6a6a6a;margin-top:3px;margin-left:14px;letter-spacing:.02em;
+/* 통합 모드는 이름 앞 색 점 자리를 브랜드 아이콘이 대신한다 */
+.picon{width:11px;height:11px;flex-shrink:0;display:flex;align-items:center;}
+.picon svg{width:100%;height:100%;display:block;}
+/* 아이콘(11px) + .pname gap(6px) 만큼 들여써 플랜 라벨을 이름과 맞춘다 */
+.pplan{font-size:8.5px;color:#6a6a6a;margin-top:3px;margin-left:17px;letter-spacing:.02em;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .pmetrics{flex:1;display:flex;gap:10px;min-width:0;}
 .pm{flex:1;min-width:0;}
@@ -404,6 +410,29 @@ function makeRingMini(p) {
   return `<svg viewBox="0 0 52 52"><circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="#2a2a2a" stroke-width="5"/><circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="${col}" stroke-width="5" stroke-dasharray="${ci.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}" stroke-linecap="round" transform="rotate(-90 ${c} ${c})"/></svg>`;
 }
 
+// 제공자 브랜드 아이콘 (인라인 SVG). CSP 가 외부 이미지·data: URI 를 막으므로
+// 진행률 링과 같은 방식으로 마크업 문자열을 만든다. 식별용으로 직접 그린 단순
+// 도형이며 공식 로고 파일이 아니다. 색은 provider.accent 를 그대로 쓴다.
+// 모르는 id 는 예전 색 점으로 폴백해 어떤 경우에도 빈칸이 되지 않게 한다.
+function providerIcon(id, accent) {
+  const c = esc(accent || '#666');
+  switch (id) {
+    case 'claude':   // 선버스트: 중심을 비운 8방향 방사선
+      return `<svg viewBox="0 0 24 24"><g stroke="${c}" stroke-width="2.4" stroke-linecap="round" fill="none">
+        <path d="M16.5 12H22M12 16.5V22M7.5 12H2M12 7.5V2M15.2 15.2l3.9 3.9M8.8 15.2l-3.9 3.9M8.8 8.8L4.9 4.9M15.2 8.8l3.9-3.9"/>
+        </g></svg>`;
+    case 'chatgpt':  // 6엽 로제트: 60° 씩 돌린 캡슐 외곽선 (매듭 마크의 단순화)
+      return `<svg viewBox="0 0 24 24"><g stroke="${c}" stroke-width="1.6" fill="none">
+        ${[0, 60, 120, 180, 240, 300].map(a =>
+          `<rect x="10" y="2.5" width="4" height="10" rx="2" transform="rotate(${a} 12 12)"/>`).join('')}
+        </g></svg>`;
+    case 'gemini':   // 4각 스파클: 오목한 변의 별
+      return `<svg viewBox="0 0 24 24"><path fill="${c}" d="M12 2C12 7.5 7.5 12 2 12C7.5 12 12 16.5 12 22C12 16.5 16.5 12 22 12C16.5 12 12 7.5 12 2Z"/></svg>`;
+    default:
+      return `<span class="pdot" style="background:${c}"></span>`;
+  }
+}
+
 function cardBorder(p) {
   if (p >= 80) return 'rgba(239,68,68,0.45)';
   if (p >= 50) return 'rgba(245,158,11,0.38)';
@@ -469,7 +498,7 @@ function renderUnified(data) {
     }
     return `<div class="prow">
       <div class="pwho">
-        <div class="pname"><div class="pdot" style="background:${esc(p.accent)}"></div>${esc(p.name)}</div>
+        <div class="pname"><span class="picon">${providerIcon(p.id, p.accent)}</span>${esc(p.name)}</div>
         <div class="pplan" title="${esc(p.note || p.plan || '')}">${esc(p.plan || '—')}</div>
       </div>
       ${body}
@@ -543,12 +572,13 @@ function renderMini(data) {
             showGauge ? pct + '%' : esc(m.value != null ? m.value : '—')}</span>`;
         }).join('')
       : `<span class="mcell" style="color:#6a6a6a;flex:2">${p.state === 'auth' ? '로그인' : '오류'}</span>`;
-    const tip = p.state === 'ok'
+    // 이름 텍스트 대신 브랜드 아이콘만 두므로, 이름은 툴팁 첫 줄로 보여 준다
+    const detail = p.state === 'ok'
       ? p.metrics.slice(0, 2).map(m => `${m.label} ${m.gauge === false ? m.value : m.pct + '%'}${m.reset ? ' · ' + shortReset(m.reset) : ''}`).join('\n')
       : (p.message || '');
+    const tip = detail ? `${p.name}\n${detail}` : p.name;
     return `<div class="mrow tip" data-tip="${esc(tip)}">
-      <span class="pdot" style="background:${esc(p.accent)}"></span>
-      <span class="mname">${esc(p.name)}</span>${cells}</div>`;
+      <span class="micon">${providerIcon(p.id, p.accent)}</span>${cells}</div>`;
   };
   document.getElementById('miniContent').innerHTML =
     `<div class="mini-rows">${list.map(row).join('')}</div>`;
