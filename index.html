@@ -795,7 +795,15 @@ async function loadData(force = false) {
   setLoading(true);
   let results;
   try {
-    results = await ipcRenderer.invoke('fetch-all', providers.ids);
+    // 확장 연결 상태도 매번 새로 읽는다. 시작할 때 한 번만 읽으면 그 뒤로 영영
+    // 갱신되지 않아, 멀쩡히 연결돼 있는데도 '확장' 배지가 사라진 채로 남는다.
+    const [fetched] = await Promise.all([
+      ipcRenderer.invoke('fetch-all', providers.ids),
+      ipcRenderer.invoke('extension-status')
+        .then(info => { if (info) extInfo = info; })
+        .catch(() => {}),
+    ]);
+    results = fetched;
   } catch (e) {
     results = providers.ids.map(id => ({ id, error: 'unknown', message: e.message }));
   }
