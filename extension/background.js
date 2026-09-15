@@ -11,6 +11,12 @@
 const BRIDGE = { port: 47836, token: 'ai-usage-widget-local' };
 const base = `http://127.0.0.1:${BRIDGE.port}`;
 
+// 기부 주기. 짧게 잡아도 비용은 로컬 쿠키 읽기 + 루프백 POST 뿐이고,
+// 위젯은 쿠키가 실제로 바뀌었을 때만 다시 조회한다. 짧을수록 위젯을 늦게
+// 켰거나 브라우저를 재시작했을 때 복구가 빠르다.
+const ALARM = 'donate';
+const PERIOD_MIN = 5;
+
 // 제공자별 쿠키 도메인 (providers/<id>.js 의 cookieDomains 와 동일하게 유지).
 // chrome.cookies.getAll({domain}) 는 해당 도메인과 그 하위 도메인 쿠키를 준다.
 const COOKIE_DOMAINS = {
@@ -70,6 +76,17 @@ async function donateAll() {
   for (const id of Object.keys(COOKIE_DOMAINS)) donateCookies(id);
 }
 
+// MV3 서비스 워커는 유휴 ~30초면 종료되고 이벤트마다 다시 시작한다. 그때마다
+// chrome.alarms.create 를 그냥 부르면 같은 이름의 알람이 "지금부터 다시" 로
+// 교체되어 주기가 초기화된다 — 워커가 주기보다 자주 깨면 알람이 영영 울리지
+// 않는다. 그래서 없을 때만 만든다.
+async function ensureAlarm() {
+  try {
+    if (await chrome.alarms.get(ALARM)) return;     // 이미 예약돼 있으면 두 번 만들지 않는다
+    chrome.alarms.create(ALARM, { periodInMinutes: PERIOD_MIN });
+  } catch (e) { /* 알람을 못 만들어도 페이지 방문 시 기부는 계속 동작한다 */ }
+}
+
 async function onUsage(payload) {
   forwardUsage(payload);
   // 사용량 페이지가 열렸다는 건 이 프로필에 로그인돼 있다는 확증이다.
@@ -83,11 +100,15 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
   if (msg && msg.type === 'usage' && msg.payload) { onUsage(msg.payload); }
 });
 
-// 주기 기부: 위젯이 켜져 있으면 30분마다 최신 쿠키를 넘긴다
-chrome.alarms.create('donate', { periodInMinutes: 30 });
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === 'donate') donateAll();
+  if (alarm.name === ALARM) donateAll();
 });
 
-// 설치/갱신 직후 한 번 기부
-chrome.runtime.onInstalled.addListener(() => { donateAll(); });
+// 설치/갱신 직후, 그리고 브라우저를 켤 때마다 알람을 확인하고 한 번 기부한다.
+// onStartup 이 없으면 브라우저를 껐다 켠 뒤 사용량 페이지를 직접 열기 전까지
+// 쿠키가 갱신되지 않는다.
+chrome.runtime.onInstalled.addListener(() => { ensureAlarm(); donateAll(); });
+chrome.runtime.onStartup.addListener(() => { ensureAlarm(); donateAll(); });
+
+// 워커가 어떤 이유로 시작되든 알람이 살아 있는지 확인한다(없을 때만 생성).
+ensureAlarm();

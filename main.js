@@ -3,6 +3,7 @@ process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true';
 const { app, BrowserWindow, BrowserView, ipcMain, session, screen, shell } = require('electron');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const updater   = require('./updater');
 const providers = require('./providers');
 const identity  = require('./browser-identity');
@@ -86,6 +87,9 @@ if (!gotSingleInstanceLock) {
 async function ingestCookies(payload) {
   const provider = providers.get(payload.id);
   if (!provider) return;
+  // 확장이 살아 있다는 신호. 사용량 보고(/report)는 사용자가 사용량 페이지에
+  // 있을 때만 오므로, 연결 여부는 쿠키 기부 시각으로도 판단해야 한다.
+  cookieContact[provider.id] = Date.now();
   try {
     const res = await cookieTools.setCookies(sessionFor(), payload.cookies);
     // 쿠키 값은 절대 남기지 않는다 — 주입 개수만 기록한다
@@ -94,7 +98,11 @@ async function ingestCookies(payload) {
     console.error(`[cookies] ${provider.id}: 주입 실패 — ${e.message}`);
     return;
   }
-  // 렌더러에 알려 새 쿠키로 곧바로 다시 조회하게 한다 (조회는 렌더러가 fetch-all 로 수행)
+  // 기부는 주기적으로 오지만 대개 내용이 그대로다. 값이 실제로 바뀐 경우에만
+  // 다시 조회해 같은 쿠키로 사이트를 반복 호출하지 않는다.
+  const fp = cookieFingerprint(payload.cookies);
+  if (fp === cookiePrints[provider.id]) return;
+  cookiePrints[provider.id] = fp;
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('cookies-updated', provider.id);
   }
@@ -197,6 +205,26 @@ function freshExtensionReport(id) {
   return r && (Date.now() - r.at) < EXTENSION_FRESH_MS ? r : null;
 }
 
+// 확장이 마지막으로 쿠키를 넘긴 시각 / 그 쿠키의 지문(값은 보관하지 않는다)
+const cookieContact = {};
+const cookiePrints  = {};
+
+// 쿠키가 실제로 바뀌었는지만 알면 되므로 해시로 비교한다(원본 값은 남기지 않는다)
+function cookieFingerprint(cookies) {
+  const list = Array.isArray(cookies) ? cookies : [];
+  const text = list.map(c => `${c.name}=${c.value}`).sort().join('\n');
+  return crypto.createHash('sha256').update(text).digest('hex');
+}
+
+// 확장과 연결돼 있는가 — 사용량 보고 또는 쿠키 기부 중 하나만 최근이면 연결로 본다.
+// 사용량 보고는 사용자가 사용량 페이지에 있을 때만 오므로 그것만 보면
+// 멀쩡히 동작하는 중에도 "끊김" 으로 보인다.
+function extensionLinked(id) {
+  if (freshExtensionReport(id)) return true;
+  const at = cookieContact[id];
+  return !!at && (Date.now() - at) < EXTENSION_FRESH_MS;
+}
+
 // 로그인 상태 진단: 제공자별로 세션에 쿠키가 몇 개 있는지 본다.
 // "로그인했는데 안 된다" 일 때 쿠키가 실제로 저장됐는지부터 확인할 수 있다.
 ipcMain.handle('session-report', async () => {
@@ -212,7 +240,7 @@ ipcMain.handle('session-report', async () => {
       쿠키수: cookies.length,
       // 인증 쿠키 이름을 못 맞혔을 수도 있으므로 전체 이름을 그대로 보여준다
       쿠키이름: cookies.map(c => c.name).join(' '),
-      확장: freshExtensionReport(p.id) ? '연결됨' : '없음',
+      확장: extensionLinked(p.id) ? '연결됨' : '없음',
       최종URL: last.finalUrl || '',
       조회방식: freshExtensionReport(p.id) ? 'extension' : 'widget',
     });
@@ -361,7 +389,7 @@ async function fetchOne(provider) {
 }
 
 ipcMain.handle('extension-status', () => ({
-  connected: providers.ids.filter(freshExtensionReport),
+  connected: providers.ids.filter(extensionLinked),
 }));
 
 // 사용자의 실제(기본) 브라우저에서 사용량 페이지를 연다 — 이미 그 브라우저가

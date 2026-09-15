@@ -64,12 +64,21 @@ async function migrateCookies(fromSes, toSes, domains) {
 //  expirationDate/hostOnly)은 toSetDetails 가 그대로 다룰 수 있다.
 // 한 번 주입하면 defaultSession 이 디스크에 보관하므로, 브라우저를 닫아도
 // 위젯이 그 쿠키로 사용량 페이지를 단독 조회할 수 있다.
-async function setCookies(ses, rawCookies) {
+// 만료가 없는(세션) 쿠키에 붙일 기본 수명. 이걸 붙이지 않으면 Electron 이
+// 세션 쿠키로 저장해 위젯을 끄는 순간 사라지고, 재시작하면 "연결 필요" 가 된다.
+const SESSION_TTL_DAYS = 14;
+
+async function setCookies(ses, rawCookies, opts) {
   const list = Array.isArray(rawCookies) ? rawCookies : [];
+  const ttlDays = (opts && opts.sessionTtlDays) || SESSION_TTL_DAYS;
   let set = 0, failed = 0;
   for (const c of list) {
     if (!c || !c.name || !c.domain) { failed++; continue; }
     const details = toSetDetails(c);
+    // 세션 쿠키는 만료를 줘서 디스크에 남긴다 — 위젯을 재시작해도 로그인이 유지된다
+    if (!details.expirationDate) {
+      details.expirationDate = Math.floor(Date.now() / 1000) + ttlDays * 24 * 60 * 60;
+    }
     // Electron 은 sameSite='no_restriction' 인데 secure=false 이면 거부한다.
     // 크롬에서 넘어온 값이 어긋나면 unspecified 로 낮춰 주입을 살린다.
     if (details.sameSite === 'no_restriction' && !details.secure) {
