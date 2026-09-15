@@ -23,6 +23,9 @@ function validateReport(body, isKnownProvider) {
   if (!Array.isArray(body.metrics) || !body.metrics.length) return null;
   const metrics = body.metrics
     .filter(m => m && typeof m === 'object')
+    // 게이지인데 pct 를 못 읽은 항목은 버린다. 예전처럼 0 으로 채우면 "사용량 0%" 라는
+    // 틀린 값을 정상값처럼 보여 주게 된다. 다 버려지면 아래에서 보고 자체를 거절한다.
+    .filter(m => m.gauge === false || Number.isFinite(m.pct))
     .map(m => ({
       key: String(m.key || ''),
       label: String(m.label || ''),

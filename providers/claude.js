@@ -45,10 +45,13 @@ function parse(doc) {
 
   const entries = bars.map(bar => {
     const card = getCard(bar);
+    // aria-valuenow 가 사라지거나 이름이 바뀌면 예전에는 `|| 0` 때문에 0% 로 둔갑해
+    // "사용량 0" 을 정상값처럼 보여줬다. 못 읽으면 null 로 두어 실패가 드러나게 한다.
+    const n = Number.parseInt(bar.getAttribute('aria-valuenow'), 10);
     return {
       card,
       text:  card ? card.textContent : '',
-      pct:   parseInt(bar.getAttribute('aria-valuenow')) || 0,
+      pct:   Number.isFinite(n) ? n : null,
       reset: getResetText(card),
     };
   });
@@ -106,17 +109,20 @@ function parse(doc) {
     }
   }
 
-  // 통합 패널은 metrics 의 앞 2개를 요약으로 쓴다
+  // 통합 패널은 metrics 의 앞 2개를 요약으로 쓴다.
+  // 값을 못 읽은(pct === null) 게이지는 넣지 않는다 — 넣으면 0% 로 보여 오해를 준다.
   const metrics = [];
-  if (sessionE) metrics.push({ key: 'session',    label: '세션', pct: sessionE.pct, reset: sessionE.reset });
-  if (allE)     metrics.push({ key: 'weekly_all', label: '주간', pct: allE.pct,     reset: allE.reset });
-  if (modelE)   metrics.push({ key: 'weekly_model', label: modelLabel || '모델', pct: modelE.pct, reset: modelE.reset });
-  if (extraE)   metrics.push({
-    key: 'extra', label: '크레딧', pct: extraE.pct, reset: extraE.reset,
-    detail: extraBalance ? `잔액 ${extraBalance}` : extraUsed,
-  });
+  const add = (e, m) => { if (e && e.pct !== null) metrics.push(Object.assign(m, { pct: e.pct, reset: e.reset })); };
+  add(sessionE, { key: 'session',      label: '세션' });
+  add(allE,     { key: 'weekly_all',   label: '주간' });
+  add(modelE,   { key: 'weekly_model', label: modelLabel || '모델' });
+  add(extraE,   { key: 'extra',        label: '크레딧',
+                  detail: extraBalance ? `잔액 ${extraBalance}` : extraUsed });
 
-  return { plan, metrics, meterCount: bars.length };
+  // meterCount = 화면에서 찾은 게이지 수, readCount = 그중 값까지 읽어낸 수.
+  // 게이지는 있는데 하나도 못 읽었다면 로그아웃이 아니라 페이지 구조가 바뀐 것이다.
+  return { plan, metrics, meterCount: bars.length,
+           readCount: entries.filter(e => e.pct !== null).length };
 }
 
 const _api = { id, name, accent, url, loginUrl, switchUrl, cookieDomains, authCookies, readySelector, parse };
