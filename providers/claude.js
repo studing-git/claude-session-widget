@@ -20,9 +20,39 @@ const authCookies = ['sessionKey', 'sessionKey.sig', '__Secure-next-auth.session
 
 const readySelector = '[role="meter"]';
 
-// claude.ai 의 구독 플랜 이름. 전체 일치로만 인정해 본문의 "Pro" 같은 낱말을
-// 플랜으로 오인하지 않게 한다. ("Max (5x)" 처럼 배수가 붙는 형태도 포함)
-const PLAN_RE = /^(?:Max\s*\(\s*\d+\s*x\s*\)|Max|Pro|Team|Enterprise|Free)$/i;
+// claude.ai 의 구독 플랜 이름.
+//
+// 요소 전체가 플랜명인 경우. 본문의 낱말("Pro tip…")을 플랜으로 오인하지 않는다.
+const PLAN_EXACT = /^(?:Max\s*\(\s*\d+\s*x\s*\)|Max|Pro|Team|Enterprise|Free)$/i;
+// 다른 글자와 한 요소에 섞여 있어도 안전하게 뽑아낼 수 있는 형태.
+//  - "Max (5x)" 는 그 자체로 충분히 특징적이라 그냥 뽑아도 된다
+//  - 나머지 등급은 바로 뒤에 "플랜/plan" 이 붙을 때만 (낱말 오인 방지)
+const PLAN_INSIDE = /Max\s*\(\s*\d+\s*x\s*\)|\b(?:Max|Pro|Team|Enterprise|Free)\b(?=\s*(?:플랜|plan\b))/i;
+
+// 제목 영역을 먼저 보고, 없으면 문서 전체에서 찾는다. 각 범위에서 "요소 전체가
+// 플랜명"인 쪽을 먼저 믿고, 그다음 섞여 있는 경우를 본다.
+//
+// 섞여 있는 경우를 반드시 봐야 한다: 2.5.0 에서 전체 일치만 보도록 바꿨다가
+// "Max (5x) 플랜" 처럼 뒤에 글자가 붙은 구조에서 플랜이 통째로 사라졌다.
+function findPlan(doc) {
+  const scopes = [
+    doc.querySelectorAll('div[class*="items-start"][class*="justify-between"] *'),
+    doc.querySelectorAll('p, span, div'),
+  ];
+  for (const els of scopes) {
+    for (const el of els) {
+      const t = el.textContent.trim();
+      if (t.length <= 20 && PLAN_EXACT.test(t)) return t;
+    }
+    for (const el of els) {
+      const t = el.textContent.trim();
+      if (t.length >= 60) continue;          // 긴 문단은 보지 않는다
+      const m = t.match(PLAN_INSIDE);
+      if (m) return m[0].trim();
+    }
+  }
+  return '';
+}
 
 function parse(doc) {
   const bars = Array.from(doc.querySelectorAll('[role="meter"]'));
@@ -100,20 +130,7 @@ function parse(doc) {
   }
 
   // 플랜: 제목 영역에 들어가는 구독 이름.
-  // 예전에는 "Max (5x)" 패턴만 찾아서 Pro·Team·Free 사용자는 플랜이 빈칸이었다.
-  // 아는 플랜 이름을 통째로(앵커) 맞춰 엉뚱한 단어를 주워오지 않게 한다.
-  let plan = '';
-  for (const el of doc.querySelectorAll('div[class*="items-start"][class*="justify-between"] *')) {
-    const t = el.textContent.trim();
-    if (PLAN_RE.test(t)) { plan = t; break; }
-  }
-  if (!plan) {
-    // 제목 영역 클래스가 바뀐 경우를 위한 폴백. 짧은 텍스트만 본다.
-    for (const el of doc.querySelectorAll('p, span, div')) {
-      const t = el.textContent.trim();
-      if (t.length <= 20 && PLAN_RE.test(t)) { plan = t; break; }
-    }
-  }
+  const plan = findPlan(doc);
 
   // 통합 패널은 metrics 의 앞 2개를 요약으로 쓴다.
   // 값을 못 읽은(pct === null) 게이지는 넣지 않는다 — 넣으면 0% 로 보여 오해를 준다.
