@@ -15,14 +15,17 @@ const loginUrl = 'https://chatgpt.com/auth/login';
 // 계정 전환 시 실제 브라우저에서 열 주소 (로그아웃 후 다른 계정으로 로그인)
 const switchUrl = 'https://chatgpt.com/auth/login';
 
-// 사용량 탭 패널이 그려질 때까지 기다린다
 // 예전 defaultSession 에서 로그인을 물려받을 때 옮겨올 쿠키 도메인
 const cookieDomains = ['chatgpt.com', 'openai.com'];
 
 // oai-did 같은 기기 쿠키는 로그인과 무관하므로 세션 토큰만 본다.
 const authCookies = ['__Secure-next-auth.session-token', '__Secure-next-auth.session-token.0', '_account'];
 
-const readySelector = '[id$="-content-Usage"]';
+// 사용량 탭 패널이 그려질 때까지 기다린다.
+// 예전에는 Radix 가 만든 '[id$="-content-Usage"]' 를 봤는데, ChatGPT 가 설정
+// 패널 구조를 바꾸면서 그 id 가 사라졌다(지금은 React 식 '_r_1na_-available').
+// 그래서 역할 기반 선택자를 함께 본다 — 옛 구조도 계속 지원한다.
+const readySelector = '[id$="-content-Usage"], [role="tabpanel"]';
 
 // 사용량이 해시 라우트(#settings/Usage)라, 위젯 오프스크린 조회 시 라우트를
 // 한 번 흔들어 설정→사용량 화면을 열어야 readySelector 가 나타난다.
@@ -37,6 +40,42 @@ function toUsedPct(text) {
   const used = text.match(/(\d+)\s*%\s*(?:사용됨|used)/i);
   if (used) return parseInt(used[1], 10);
   return null;
+}
+
+// ── 구독 플랜 ──
+// 사용량 페이지에는 플랜 이름이 없다(거기 보이는 Plus/Pro 문자열은 화면 텍스트가
+// 아니라 스크립트 안 실험 플래그 이름이다). 플랜은 설정의 "결제" 탭에만 있으므로
+// 그 화면을 따로 한 번 읽는다. 자주 바뀌지 않으니 호출자가 캐시한다.
+const planUrl = 'https://chatgpt.com/#settings/Billing';
+const planReadySelector = '[role="tabpanel"], [id$="-content-Billing"]';
+const planHash = 'settings/Billing';
+
+// 결제 화면에서 "현재" 플랜을 읽는다.
+// 주의: 같은 화면에 결제 이력 표가 있고 거기엔 예전 플랜(Plus 등)이 줄줄이 들어
+// 있다. 단순히 첫 번째 ChatGPT ○○ 를 집으면 과거 플랜을 가져오므로, 갱신 문구가
+// 있는 행만 보고 표(<td>) 안은 건너뛴다.
+//
+// 이 함수는 본체가 toString() 으로 직렬화해 조회 중인 페이지 안에서 실행한다
+// (main 프로세스엔 DOM 이 없다). 그러니 바깥 변수를 참조하면 안 된다 — 필요한
+// 정규식은 전부 안에서 선언한다.
+function parsePlan(doc) {
+  const RENEW = /플랜\s*자동\s*갱신|자동\s*갱신|renews?\s+on|auto-?renew/i;
+  const PLAN  = /^ChatGPT\s+(?:Free|Go|Plus|Pro|Business|Team|Enterprise)\b/i;
+  for (const el of doc.querySelectorAll('p, span, div')) {
+    if (el.children.length) continue;
+    if (!RENEW.test(el.textContent)) continue;
+    if (el.closest('td, th, table')) continue;
+    let row = el.parentElement, hops = 0;
+    while (row && hops < 5) {
+      const hit = Array.from(row.querySelectorAll('div, span, h1, h2, h3'))
+        .map(e => e.textContent.trim())
+        .find(t => PLAN.test(t) && t.length < 60);
+      // 좁은 칸에 들어가도록 "ChatGPT " 접두사는 뗀다 → "Pro 100"
+      if (hit) return hit.replace(/^ChatGPT\s+/i, '').trim();
+      row = row.parentElement; hops++;
+    }
+  }
+  return '';
 }
 
 function parse(doc) {
@@ -67,13 +106,20 @@ function parse(doc) {
       }
     }
 
-    // 재설정: 버튼의 aria-label 이 "7일 0시간 후 초기화" 처럼 완성된 문장이다
+    // 재설정 문구. 예전에는 버튼의 aria-label("7일 0시간 후 초기화")이었는데
+    // 지금은 평범한 텍스트("초기화까지 4일 14시간 남았습니다")로 바뀌었다.
+    // card.textContent 로 찾으면 옆 텍스트까지 붙어 오므로("…남았습니다69%")
+    // 자식이 없는 말단 요소만 본다. "사용 한도 초기화"(버튼 이름) 같은 조작용
+    // 문구는 시간 표현을 요구해 걸러낸다.
     let reset = '';
     const resetBtn = card.querySelector('button[aria-label*="초기화"], button[aria-label*="reset" i]');
-    if (resetBtn) reset = resetBtn.getAttribute('aria-label').trim();
+    if (resetBtn) reset = (resetBtn.getAttribute('aria-label') || '').trim();
     if (!reset) {
-      const m = card.textContent.match(/[^\s][^\n]{0,20}후\s*초기화/);
-      if (m) reset = m[0].trim();
+      for (const e of card.querySelectorAll('span, p, div')) {
+        if (e.children.length) continue;
+        const t = e.textContent.trim();
+        if (t.length < 40 && /(초기화까지[^]*남았|후\s*초기화|resets?\s+in)/.test(t)) { reset = t; break; }
+      }
     }
 
     metrics.push({ key: 'limit-' + metrics.length, label, pct, reset });
@@ -97,10 +143,14 @@ function parse(doc) {
   }
 
   // 이 패널에는 플랜 이름이 없다. 무엇을 집계하는지 알려주는 편이 오해를 막는다.
-  return { plan: SCOPE_NOTE, metrics, note: 'Chat 대화 미포함' };
+  // plan 은 결제 화면에서 따로 읽어 호출자가 덮어쓴다. 그걸 못 구했을 때를 대비해
+  // 기존처럼 집계 범위를 넣어 두면, 최악이어도 지금과 같은 화면이 된다.
+  return { plan: SCOPE_NOTE, metrics, note: SCOPE_NOTE + ' · Chat 대화 미포함' };
 }
 
-const _api = { id, name, accent, url, loginUrl, switchUrl, cookieDomains, authCookies, readySelector, hashNudge, parse, toUsedPct };
+const _api = { id, name, accent, url, loginUrl, switchUrl, cookieDomains, authCookies,
+               readySelector, hashNudge, parse, toUsedPct,
+               planUrl, planReadySelector, planHash, parsePlan };
 if (typeof module !== 'undefined' && module.exports) module.exports = _api;
 // 확장 프로그램의 콘텐츠 스크립트에서도 같은 파서를 쓴다
 if (typeof globalThis !== 'undefined') (globalThis.AIUsageProviders = globalThis.AIUsageProviders || {})[id] = _api;

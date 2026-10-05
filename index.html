@@ -376,6 +376,11 @@ ipcRenderer.on('cookies-updated', () => {
   if (extRefreshTimer) return;
   extRefreshTimer = setTimeout(() => { extRefreshTimer = null; loadData(true); }, 800);
 });
+// 플랜을 뒤늦게 읽어 왔을 때 (조회와 별도로 돌아간다) 화면에 반영한다
+ipcRenderer.on('plan-updated', () => {
+  if (extRefreshTimer) return;
+  extRefreshTimer = setTimeout(() => { extRefreshTimer = null; loadData(true); }, 800);
+});
 ipcRenderer.invoke('session-report')
   .then(rows => { if (rows) { console.log('[진단] 제공자별 쿠키 상태'); console.table(rows); } })
   .catch(() => {});
@@ -785,7 +790,7 @@ function toProviderState(res) {
   // 확장 프로그램이 보낸 값은 이미 파싱돼 있다. 그대로 정규화 상태로 감싼다.
   if (res.fromExtension) {
     return Object.assign(base, {
-      state: 'ok', plan: res.plan || '', note: res.note || '', fromExtension: true,
+      state: 'ok', plan: res.planOverride || res.plan || '', note: res.note || '', fromExtension: true,
       metrics: (res.metrics || []).map(m => Object.assign({ gauge: true, reset: '', detail: '' }, m)),
     });
   }
@@ -803,6 +808,9 @@ function toProviderState(res) {
     parsed.debugFile = res.debugFile || '';
     parsed.finalUrl = res.finalUrl || '';
   }
+  // 플랜은 사용량과 다른 화면에서 읽어 오므로(ChatGPT 결제 탭) 본체가 따로 넘겨준다.
+  // 아직 못 읽었으면 파서가 넣어 둔 기본값(집계 범위)이 그대로 남는다.
+  if (res.planOverride) parsed.plan = res.planOverride;
   return parsed;
 }
 
