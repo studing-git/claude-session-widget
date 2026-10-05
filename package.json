@@ -1,7 +1,7 @@
 {
   "name": "claude-usage-widget",
-  "version": "2.4.1",
-  "description": "Claude, ChatGPT, Gemini usage desktop widget",
+  "version": "2.5.0",
+  "description": "Claude, ChatGPT usage desktop widget",
   "main": "main.js",
   "scripts": {
     "start": "electron ."

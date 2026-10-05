@@ -20,6 +20,10 @@ const authCookies = ['sessionKey', 'sessionKey.sig', '__Secure-next-auth.session
 
 const readySelector = '[role="meter"]';
 
+// claude.ai 의 구독 플랜 이름. 전체 일치로만 인정해 본문의 "Pro" 같은 낱말을
+// 플랜으로 오인하지 않게 한다. ("Max (5x)" 처럼 배수가 붙는 형태도 포함)
+const PLAN_RE = /^(?:Max\s*\(\s*\d+\s*x\s*\)|Max|Pro|Team|Enterprise|Free)$/i;
+
 function parse(doc) {
   const bars = Array.from(doc.querySelectorAll('[role="meter"]'));
 
@@ -95,17 +99,19 @@ function parse(doc) {
     break;
   }
 
-  // 플랜: 제목 영역의 "Max (5x)" 패턴
+  // 플랜: 제목 영역에 들어가는 구독 이름.
+  // 예전에는 "Max (5x)" 패턴만 찾아서 Pro·Team·Free 사용자는 플랜이 빈칸이었다.
+  // 아는 플랜 이름을 통째로(앵커) 맞춰 엉뚱한 단어를 주워오지 않게 한다.
   let plan = '';
   for (const el of doc.querySelectorAll('div[class*="items-start"][class*="justify-between"] *')) {
     const t = el.textContent.trim();
-    if (/^Max \(\d+x\)$/.test(t)) { plan = t; break; }
+    if (PLAN_RE.test(t)) { plan = t; break; }
   }
   if (!plan) {
+    // 제목 영역 클래스가 바뀐 경우를 위한 폴백. 짧은 텍스트만 본다.
     for (const el of doc.querySelectorAll('p, span, div')) {
       const t = el.textContent.trim();
-      const m = t.length < 60 && t.match(/Max \(\d+x\)/);
-      if (m) { plan = m[0]; break; }
+      if (t.length <= 20 && PLAN_RE.test(t)) { plan = t; break; }
     }
   }
 

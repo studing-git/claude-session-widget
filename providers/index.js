@@ -11,7 +11,25 @@ const claude  = require('./claude');
 const chatgpt = require('./chatgpt');
 const gemini  = require('./gemini');
 
-const PROVIDERS = [claude, chatgpt, gemini];
+// 등록된 제공자 전부. 파서는 남겨 두고 여기서만 켜고 끈다.
+const ALL = [claude, chatgpt, gemini];
+
+// 비활성 제공자 — 위젯에 표시하지 않고 조회도 하지 않는다.
+//
+// gemini: 구글이 임베디드 브라우저(Electron) 조회에 추가 인증을 걸어 사용량
+//   페이지를 받지 못한다. 파서 자체는 멀쩡하므로(캡처본으로 검증됨) 코드는
+//   남겨 둔다. 되살리려면 이 배열에서 'gemini' 만 빼면 된다.
+//   확장 쪽도 함께 되돌려야 한다 — extension/manifest.json 의 content_scripts
+//   항목과 "https://*.google.com/*" host 권한, extension/background.js 의
+//   COOKIE_DOMAINS.gemini.
+const DISABLED = ['gemini'];
+
+const PROVIDERS = ALL.filter(p => !DISABLED.includes(p.id));
+
+// 비활성 제공자까지 찾아야 하는 경우(진단 등)를 위해 따로 둔다
+function getAny(id) {
+  return ALL.find(p => p.id === id) || null;
+}
 
 function get(id) {
   return PROVIDERS.find(p => p.id === id) || null;
@@ -62,4 +80,4 @@ function parseHtml(id, html, DOMParserImpl) {
   }
 }
 
-module.exports = { PROVIDERS, get, parseHtml, ids: PROVIDERS.map(p => p.id) };
+module.exports = { PROVIDERS, ALL, DISABLED, get, getAny, parseHtml, ids: PROVIDERS.map(p => p.id) };

@@ -1,8 +1,9 @@
 # claude-session-widget
 
-Claude · ChatGPT · Gemini 사용량을 한 화면에서 항상 화면 위에 표시하는 데스크탑 위젯 (Electron)
+Claude · ChatGPT 사용량을 한 화면에서 항상 화면 위에 표시하는 데스크탑 위젯 (Electron)
 
-> v2.0 부터 Claude 외에 ChatGPT·Gemini 사용량도 함께 표시하며, 로그인된 브라우저에서 값을 받아오는 브라우저 확장을 제공합니다.
+> v2.0 부터 Claude 외에 ChatGPT 사용량도 함께 표시하며, 로그인된 브라우저에서 값을 받아오는 브라우저 확장을 제공합니다.
+> Gemini 는 v2.5 에서 비활성화됐습니다 (구글이 위젯 조회를 막음 — 파서 코드는 남아 있어 되살릴 수 있습니다).
 
 > **주의**: 개인 사용 목적으로만 제작되었습니다. 배포 및 상업적 사용은 금지합니다.
 
@@ -14,7 +15,7 @@ Claude · ChatGPT · Gemini 사용량을 한 화면에서 항상 화면 위에 �
 - **개인 사용 목적으로만 제작됨**
 - **Anthropic 이용약관을 준수하세요**
 
-claude.ai에 대한 자동 접근은 Anthropic의 서비스 이용약관(Consumer ToS Section 3.7) 위반 소지가 있습니다. **ChatGPT·Gemini 패널도 각 서비스의 페이지를 자동으로 열어 읽으므로 OpenAI·Google 약관에 대해 같은 문제가 적용됩니다.** 개인 사용은 회색지대이나, 배포 및 상업적 사용은 명확한 위반이므로 금지됩니다.
+claude.ai에 대한 자동 접근은 Anthropic의 서비스 이용약관(Consumer ToS Section 3.7) 위반 소지가 있습니다. **ChatGPT 패널도 해당 서비스의 페이지를 자동으로 열어 읽으므로 OpenAI 약관에 대해 같은 문제가 적용됩니다.** 개인 사용은 회색지대이나, 배포 및 상업적 사용은 명확한 위반이므로 금지됩니다.
 
 ---
 
@@ -181,7 +182,7 @@ Register-ScheduledTask -TaskName 'ClaudeUsageWidget' -Action $action -Trigger $t
 
 ### 통합 패널 (기본 화면)
 
-Claude · ChatGPT · Gemini 사용량을 한 화면에서 봅니다. 제공자마다 한 행이며, 각 행은 요약 지표 2개를 가로 막대로 보여줍니다. 연결되지 않은 서비스는 그 행에만 **연결하기** 버튼이 뜨고, 나머지는 정상 표시됩니다.
+Claude · ChatGPT 사용량을 한 화면에서 봅니다. 제공자마다 한 행이며, 각 행은 요약 지표 2개를 가로 막대로 보여줍니다. 연결되지 않은 서비스는 그 행에만 **연결하기** 버튼이 뜨고, 나머지는 정상 표시됩니다.
 
 #### 계정 · 로그인
 
@@ -196,11 +197,10 @@ Claude · ChatGPT · Gemini 사용량을 한 화면에서 봅니다. 제공자�
 |---|---|---|
 | Claude | `claude.ai/settings/usage` | 세션 · 주간 |
 | ChatGPT | `chatgpt.com` 설정 › 사용량 | 주간 한도 · 크레딧 |
-| Gemini | `gemini.google.com/usage` | 현재 · 주간 |
 
 **ChatGPT 수치의 범위** — 해당 페이지는 *"Codex, Work, 워크스페이스 에이전트, Excel용 ChatGPT에서 공유됩니다. Chat 대화는 포함되지 않습니다"* 라고 명시합니다. 즉 **일반 ChatGPT 대화 사용량이 아닙니다.** 위젯에도 `Codex · Work` 로 표기해 구분합니다.
 
-**퍼센트 의미 통일** — ChatGPT는 잔여율("100% 남음"), Claude·Gemini는 사용률("29% 사용됨")을 표시합니다. 위젯은 모두 **사용률**로 변환해 같은 기준으로 보여줍니다.
+**퍼센트 의미 통일** — ChatGPT는 잔여율("100% 남음"), Claude는 사용률("29% 사용됨")을 표시합니다. 위젯은 모두 **사용률**로 변환해 같은 기준으로 보여줍니다.
 
 ### Claude 상세 (표시 정보)
 - **현재 세션**: 현재 대화 세션의 사용률
@@ -248,7 +248,7 @@ Claude · ChatGPT · Gemini 사용량을 한 화면에서 봅니다. 제공자�
 |---|---|---|
 | Claude | `role="meter"` | `aria-valuenow` + 카드 라벨 텍스트 |
 | ChatGPT | 없음 | `"N% 남음"` 텍스트 → 사용률로 변환, 재설정은 버튼 `aria-label` |
-| Gemini | 없음 | `data-test-id="gxu-currently"` / `"gxu-weekly"` |
+| Gemini *(비활성)* | 없음 | `data-test-id="gxu-currently"` / `"gxu-weekly"` |
 
 **브라우저 신원 위장** (`browser-identity.js`) — Google은 임베디드 브라우저로 판단되면 로그인을 거부합니다(*"브라우저 또는 앱이 안전하지 않을 수 있습니다"*). Claude·ChatGPT를 Google 계정으로 로그인하는 경우에도 같은 화면에서 막힙니다.
 
@@ -306,7 +306,7 @@ console.table(await require('electron').ipcRenderer.invoke('session-report'))
 - 확장이 보낸 값은 브라우저 조회보다 우선합니다. 확장만 설치하면 위젯 로그인은 필요 없습니다.
 - **크롬 프로필을 여러 개 쓰는 경우**: 확장은 설치된 프로필에서만 동작합니다. 사용량을 보려는 계정이 로그인된 **각 프로필에 확장을 설치**하세요. 각 프로필의 확장이 같은 위젯(`127.0.0.1:47836`)으로 쿠키를 넘깁니다.
 - **쿠키 주입 방식**이라 브라우저를 꺼도 갱신됩니다. 쿠키가 만료되면 그 프로필에서 사용량 페이지를 다시 한 번 열어(또는 확장의 30분 주기 갱신으로) 재주입됩니다.
-- **Gemini(구글)는 best-effort**입니다. 구글이 위젯 조회에 추가 인증을 요구할 수 있어, 확장이 사용량 페이지에서 직접 읽어 보낸 값이 더 안정적입니다. Claude·ChatGPT는 쿠키 주입만으로 잘 됩니다.
+- **Gemini 는 v2.5 에서 비활성화**됐습니다. 구글이 위젯 조회에 추가 인증을 걸어 사용량 페이지를 받지 못했습니다. 파서는 남아 있으니 `providers/index.js` 의 `DISABLED` 에서 빼면 되살아납니다(확장 권한도 함께 되돌려야 합니다). Claude·ChatGPT 는 쿠키 주입만으로 잘 됩니다.
 - 쿠키는 `127.0.0.1`(내 컴퓨터) 루프백 + 토큰 경로로만 오가고, 값은 로그에 남기지 않습니다. 외부에서 접근할 수 없습니다.
 - ChatGPT는 설정 화면이 해시 주소(`#settings/Usage`)라 새 탭으로 열면 확장이 설정 › 사용량 화면을 자동으로 열도록 유도합니다. 그래도 안 열리면 앱에서 설정 › 사용량을 한 번 직접 열어 주세요(그 뒤로는 확장이 읽습니다).
 - 파서를 수정하면 `node sync-extension-parsers.js` 로 확장 쪽 복사본을 갱신합니다.
@@ -428,7 +428,7 @@ Register-ScheduledTask -TaskName 'ClaudeUsageWidget' -Action $action -Trigger $t
 
 ### 통합 패널 (기본 화면)
 
-Claude · ChatGPT · Gemini 사용량을 한 화면에서 봅니다. 제공자마다 한 행이며, 각 행은 요약 지표 2개를 가로 막대로 보여줍니다. 연결되지 않은 서비스는 그 행에만 **연결하기** 버튼이 뜨고, 나머지는 정상 표시됩니다.
+Claude · ChatGPT 사용량을 한 화면에서 봅니다. 제공자마다 한 행이며, 각 행은 요약 지표 2개를 가로 막대로 보여줍니다. 연결되지 않은 서비스는 그 행에만 **연결하기** 버튼이 뜨고, 나머지는 정상 표시됩니다.
 
 #### 계정 · 로그인
 
@@ -443,11 +443,10 @@ Claude · ChatGPT · Gemini 사용량을 한 화면에서 봅니다. 제공자�
 |---|---|---|
 | Claude | `claude.ai/settings/usage` | 세션 · 주간 |
 | ChatGPT | `chatgpt.com` 설정 › 사용량 | 주간 한도 · 크레딧 |
-| Gemini | `gemini.google.com/usage` | 현재 · 주간 |
 
 **ChatGPT 수치의 범위** — 해당 페이지는 *"Codex, Work, 워크스페이스 에이전트, Excel용 ChatGPT에서 공유됩니다. Chat 대화는 포함되지 않습니다"* 라고 명시합니다. 즉 **일반 ChatGPT 대화 사용량이 아닙니다.** 위젯에도 `Codex · Work` 로 표기해 구분합니다.
 
-**퍼센트 의미 통일** — ChatGPT는 잔여율("100% 남음"), Claude·Gemini는 사용률("29% 사용됨")을 표시합니다. 위젯은 모두 **사용률**로 변환해 같은 기준으로 보여줍니다.
+**퍼센트 의미 통일** — ChatGPT는 잔여율("100% 남음"), Claude는 사용률("29% 사용됨")을 표시합니다. 위젯은 모두 **사용률**로 변환해 같은 기준으로 보여줍니다.
 
 ### Claude 상세 (표시 정보)
 - **현재 세션**: 현재 대화 세션의 사용률
@@ -495,7 +494,7 @@ Claude · ChatGPT · Gemini 사용량을 한 화면에서 봅니다. 제공자�
 |---|---|---|
 | Claude | `role="meter"` | `aria-valuenow` + 카드 라벨 텍스트 |
 | ChatGPT | 없음 | `"N% 남음"` 텍스트 → 사용률로 변환, 재설정은 버튼 `aria-label` |
-| Gemini | 없음 | `data-test-id="gxu-currently"` / `"gxu-weekly"` |
+| Gemini *(비활성)* | 없음 | `data-test-id="gxu-currently"` / `"gxu-weekly"` |
 
 **브라우저 신원 위장** (`browser-identity.js`) — Google은 임베디드 브라우저로 판단되면 로그인을 거부합니다(*"브라우저 또는 앱이 안전하지 않을 수 있습니다"*). Claude·ChatGPT를 Google 계정으로 로그인하는 경우에도 같은 화면에서 막힙니다.
 
@@ -553,7 +552,7 @@ console.table(await require('electron').ipcRenderer.invoke('session-report'))
 - 확장이 보낸 값은 브라우저 조회보다 우선합니다. 확장만 설치하면 위젯 로그인은 필요 없습니다.
 - **크롬 프로필을 여러 개 쓰는 경우**: 확장은 설치된 프로필에서만 동작합니다. 사용량을 보려는 계정이 로그인된 **각 프로필에 확장을 설치**하세요. 각 프로필의 확장이 같은 위젯(`127.0.0.1:47836`)으로 쿠키를 넘깁니다.
 - **쿠키 주입 방식**이라 브라우저를 꺼도 갱신됩니다. 쿠키가 만료되면 그 프로필에서 사용량 페이지를 다시 한 번 열어(또는 확장의 30분 주기 갱신으로) 재주입됩니다.
-- **Gemini(구글)는 best-effort**입니다. 구글이 위젯 조회에 추가 인증을 요구할 수 있어, 확장이 사용량 페이지에서 직접 읽어 보낸 값이 더 안정적입니다. Claude·ChatGPT는 쿠키 주입만으로 잘 됩니다.
+- **Gemini 는 v2.5 에서 비활성화**됐습니다. 구글이 위젯 조회에 추가 인증을 걸어 사용량 페이지를 받지 못했습니다. 파서는 남아 있으니 `providers/index.js` 의 `DISABLED` 에서 빼면 되살아납니다(확장 권한도 함께 되돌려야 합니다). Claude·ChatGPT 는 쿠키 주입만으로 잘 됩니다.
 - 쿠키는 `127.0.0.1`(내 컴퓨터) 루프백 + 토큰 경로로만 오가고, 값은 로그에 남기지 않습니다. 외부에서 접근할 수 없습니다.
 - ChatGPT는 설정 화면이 해시 주소(`#settings/Usage`)라 새 탭으로 열면 확장이 설정 › 사용량 화면을 자동으로 열도록 유도합니다. 그래도 안 열리면 앱에서 설정 › 사용량을 한 번 직접 열어 주세요(그 뒤로는 확장이 읽습니다).
 - 파서를 수정하면 `node sync-extension-parsers.js` 로 확장 쪽 복사본을 갱신합니다.
@@ -597,6 +596,13 @@ git checkout -f -B main origin/main
 ```
 
 ## 변경 이력
+
+### 2026-10-05 (v2.5.0)
+- **Gemini 비활성화.** 구글이 임베디드 브라우저(Electron) 조회에 추가 인증을 걸어 사용량 페이지를 받지 못했습니다. 파서 자체는 멀쩡하므로(캡처본으로 검증됨) **코드는 남겨 두고 목록에서만 뺐습니다.** `providers/index.js` 의 `DISABLED` 에서 `'gemini'` 를 지우면 되살아납니다(확장 쪽 `manifest.json` 의 구글 host 권한·content_script 와 `background.js` 의 `COOKIE_DOMAINS.gemini` 도 함께 되돌려야 합니다).
+- **확장이 구글 쿠키를 더 이상 읽지 않습니다.** Gemini 가 빠지면서 `https://*.google.com/*` host 권한을 통째로 뺐습니다. 확장의 접근 범위가 Claude·ChatGPT 로만 좁아집니다.
+- **Claude 플랜 인식 범위 확대** — 예전에는 `Max (5x)` 형태만 인식해서 **Pro·Team·Free 사용자는 플랜이 빈칸**이었습니다. 이제 Free/Pro/Max/Team/Enterprise 를 모두 읽습니다. 본문 속 낱말을 플랜으로 오인하지 않도록 전체 일치로만 인정합니다.
+- ChatGPT 플랜(Plus/Pro/Business)은 **사용량 페이지에 플랜명이 없어** 아직 표시하지 않습니다. 플랜 칸의 `Codex · Work` 는 플랜이 아니라 집계 범위 표시입니다.
+
 
 ### 2026-09-15 (v2.4.1)
 - **파싱 실패를 명확히 알립니다.** 사용량은 각 서비스의 화면을 읽어(웹 파싱) 얻기 때문에, 서비스가 페이지를 개편하면 깨질 수 있습니다. 예전에는 그게 조용히 넘어갔습니다.
