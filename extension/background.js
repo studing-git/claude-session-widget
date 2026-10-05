@@ -19,10 +19,14 @@ const PERIOD_MIN = 5;
 
 // 제공자별 쿠키 도메인 (providers/<id>.js 의 cookieDomains 와 동일하게 유지).
 // chrome.cookies.getAll({domain}) 는 해당 도메인과 그 하위 도메인 쿠키를 준다.
+//
+// gemini 는 비활성이라 빠져 있다(providers/index.js 의 DISABLED). 덕분에 이 확장은
+// 구글 쿠키를 아예 읽지 않는다 — 되살리려면 아래 한 줄과 manifest 의 구글 host
+// 권한·content_script 를 함께 되돌린다.
+//   gemini: ['google.com', 'googleusercontent.com'],
 const COOKIE_DOMAINS = {
   claude:  ['claude.ai', 'anthropic.com'],
   chatgpt: ['chatgpt.com', 'openai.com'],
-  gemini:  ['google.com', 'googleusercontent.com'],
 };
 
 // 위젯이 켜져 있는지 확인한다. 꺼져 있으면 보낼 곳이 없다.
