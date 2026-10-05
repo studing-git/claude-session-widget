@@ -264,7 +264,16 @@ function looksLikeLogin(url) {
 
 // 제공자 한 곳의 사용량 페이지 HTML을 가져온다.
 // 각 제공자가 SPA라 readySelector 가 나타날 때까지 폴링한 뒤 수집한다.
-function fetchProviderHtml(provider) {
+// opts 로 다른 페이지를 같은 방식으로 읽을 수 있다 (예: ChatGPT 결제 화면).
+// { url, readySelector, hash } 를 주면 그쪽을 읽고, 없으면 사용량 페이지를 읽는다.
+function fetchProviderHtml(provider, opts = {}) {
+  const url      = opts.url || provider.url;
+  const readySel = opts.readySelector || provider.readySelector;
+  const hash     = opts.hash || 'settings/Usage';
+  // extract 가 있으면 HTML 을 통째로 받아오는 대신, 그 자바스크립트를 페이지
+  // 안에서 평가한 결과만 받는다. main 프로세스에는 DOM 이 없으므로, DOM 이 필요한
+  // 추출(플랜 이름 등)은 이렇게 살아 있는 페이지 쪽에서 해야 한다.
+  const extractJs = opts.extract || '';
   return new Promise((resolve) => {
     let view = null;
     try {
@@ -287,20 +296,23 @@ function fetchProviderHtml(provider) {
 
       const grabHtml = () => wc.executeJavaScript('document.documentElement.outerHTML');
       const finalUrl = () => { try { return wc.getURL(); } catch (e) { return ''; } };
+      const collect  = async (extra) => extractJs
+        ? Object.assign({ value: await wc.executeJavaScript(extractJs) }, extra)
+        : Object.assign({ html: await grabHtml(), finalUrl: finalUrl() }, extra);
 
       const poll = async (n = 0) => {
         if (resolved) return;
         if (n > 20) {                       // 약 10초 기다린 뒤에는 있는 그대로 수집한다
-          try { done({ html: await grabHtml(), finalUrl: finalUrl(), waited: true }); }
+          try { done(await collect({ waited: true })); }
           catch (e) { done({ error: 'unknown', message: e.message }); }
           return;
         }
         try {
-          const sel = JSON.stringify(provider.readySelector);
+          const sel = JSON.stringify(readySel);
           const found = await wc.executeJavaScript(`document.querySelector(${sel}) !== null`);
           if (found) {
             await new Promise(r => setTimeout(r, 600));   // 값이 채워질 여유
-            done({ html: await grabHtml(), finalUrl: finalUrl() });
+            done(await collect());
           } else {
             setTimeout(() => poll(n + 1), 500);
           }
@@ -319,7 +331,8 @@ function fetchProviderHtml(provider) {
         // (확장 content-collect.js 의 nudgeChatgptUsage 와 같은 방식).
         if (provider.hashNudge) {
           wc.executeJavaScript(
-            "location.hash='settings';setTimeout(function(){location.hash='settings/Usage';},150);"
+            "location.hash='settings';setTimeout(function(){location.hash=" +
+            JSON.stringify(hash) + ";},150);"
           ).catch(() => {});
         }
         setTimeout(() => poll(0), 1000);
@@ -328,7 +341,7 @@ function fetchProviderHtml(provider) {
         if (isMainFrame) done({ error: 'network', message: desc });
       });
       setTimeout(() => done({ error: 'timeout', message: '시간 초과' }), 25000);
-      wc.loadURL(provider.url);
+      wc.loadURL(url);
     } catch (e) {
       try { if (view) mainWindow.removeBrowserView(view); } catch (e2) {}
       resolve({ id: provider.id, error: 'unknown', message: e.message });
@@ -369,13 +382,82 @@ function saveDebugHtml(id, html) {
   } catch (e) { return ''; }
 }
 
+// ── 구독 플랜 ──
+// 플랜은 사용량과 다른 화면에 있고(ChatGPT 는 설정의 결제 탭) 거의 바뀌지 않는다.
+// 조회가 비싸므로 캐시해 두고 오래됐을 때만 다시 읽는다. 값은 설정 파일에 남겨
+// 위젯을 재시작해도 곧바로 보여줄 수 있게 한다.
+const PLAN_TTL_MS = 12 * 60 * 60 * 1000;
+const planCache = {};          // id -> { plan, at }
+let planLoaded = false;
+
+function loadPlanCache() {
+  if (planLoaded) return;
+  planLoaded = true;
+  const saved = (settings.read(userDataDir()) || {}).plans || {};
+  for (const [id, v] of Object.entries(saved)) {
+    if (v && typeof v.plan === 'string') planCache[id] = { plan: v.plan, at: v.at || 0 };
+  }
+}
+
+function cachedPlan(id) {
+  loadPlanCache();
+  const c = planCache[id];
+  return c ? c.plan : '';
+}
+
+function savePlanCache() {
+  const data = settings.read(userDataDir()) || {};
+  data.plans = planCache;
+  settings.write(userDataDir(), data);
+}
+
+// 플랜 화면을 읽어 캐시를 채운다. 느려도 사용자 체감에 영향이 없도록
+// 호출자는 기다리지 않는다(결과는 다음 갱신이나 plan-updated 알림에 반영).
+let planInFlight = {};
+async function ensurePlan(provider) {
+  if (!provider.planUrl || typeof provider.parsePlan !== 'function') return;
+  loadPlanCache();
+  const c = planCache[provider.id];
+  if (c && c.plan && (Date.now() - c.at) < PLAN_TTL_MS) return;
+  if (planInFlight[provider.id]) return;
+  planInFlight[provider.id] = true;
+  try {
+    // main 프로세스엔 DOM 이 없으므로 파서를 페이지 안에서 실행한다
+    const res = await fetchProviderHtml(provider, {
+      url: provider.planUrl,
+      readySelector: provider.planReadySelector,
+      hash: provider.planHash,
+      extract: '(' + provider.parsePlan.toString() + ')(document)',
+    });
+    const plan = typeof res.value === 'string' ? res.value.trim() : '';
+    const before = c && c.plan;
+    // 못 읽었는데 예전 값이 있으면 지우지 않는다 (일시적 실패로 표시가 사라지지 않게)
+    planCache[provider.id] = { plan: plan || before || '', at: Date.now() };
+    savePlanCache();
+    if (plan) console.log(`[plan] ${provider.id}: ${plan}`);
+    if (plan && plan !== before && mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('plan-updated', provider.id);
+    }
+  } catch (e) {
+    console.error(`[plan] ${provider.id}: 읽기 실패 — ${e.message}`);
+  } finally {
+    planInFlight[provider.id] = false;
+  }
+}
+
 async function fetchOne(provider) {
+  // 플랜은 사용량과 다른 화면에 있어 따로 읽는다. 조회가 느려지지 않도록
+  // 기다리지 않고, 캐시에 있는 값을 먼저 쓴다(처음엔 비어 있다가 곧 채워진다).
+  ensurePlan(provider).catch(() => {});
+  const planned = (plan) => (plan ? { planOverride: plan } : {});
+
   // 확장 프로그램이 최근에 보낸 값이 있으면 브라우저 조회 없이 그대로 쓴다.
   // 사용자의 로그인된 실제 브라우저에서 읽은 값이라 별도 로그인이 필요 없다.
   const ext = freshExtensionReport(provider.id);
   if (ext) {
-    return { id: provider.id, fromExtension: true,
-             plan: ext.plan, note: ext.note, metrics: ext.metrics };
+    return Object.assign({ id: provider.id, fromExtension: true,
+             plan: ext.plan, note: ext.note, metrics: ext.metrics },
+             planned(cachedPlan(provider.id)));
   }
   const res = await fetchProviderHtml(provider);
   if (res.html) res.debugFile = saveDebugHtml(provider.id, res.html);
@@ -385,7 +467,7 @@ async function fetchOne(provider) {
     res.authed = await cookieTools.isAuthenticated(
       sessionFor(), provider.cookieDomains, provider.authCookies);
   } catch (e) { /* 판단 불가면 그대로 둔다 */ }
-  return res;
+  return Object.assign(res, planned(cachedPlan(provider.id)));
 }
 
 ipcMain.handle('extension-status', () => ({
