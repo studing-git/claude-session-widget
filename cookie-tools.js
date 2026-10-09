@@ -17,77 +17,9 @@ function matchesDomains(cookieDomain, domains) {
   });
 }
 
-// 쿠키를 다시 심으려면 URL 이 필요하다. 도메인·경로·secure 로 되살린다.
+// 쿠키를 지우려면 URL 이 필요하다. 도메인·경로·secure 로 되살린다.
 function cookieUrl(c) {
   return `${c.secure ? 'https' : 'http'}://${baseDomain(c.domain)}${c.path || '/'}`;
-}
-
-function toSetDetails(c) {
-  const details = {
-    url: cookieUrl(c),
-    name: c.name,
-    value: c.value,
-    path: c.path,
-    secure: c.secure,
-    httpOnly: c.httpOnly,
-    sameSite: c.sameSite,
-  };
-  // hostOnly 쿠키에 domain 을 주면 하위 도메인까지 퍼지는 쿠키가 되어 버린다
-  if (!c.hostOnly) details.domain = c.domain;
-  // 세션 쿠키는 만료가 없다
-  if (c.expirationDate) details.expirationDate = c.expirationDate;
-  return details;
-}
-
-// fromSes 의 domains 에 해당하는 쿠키를 toSes 로 복사한다.
-// 개별 쿠키 실패는 무시하고 최대한 옮긴다.
-async function migrateCookies(fromSes, toSes, domains) {
-  let all = [];
-  try {
-    all = await fromSes.cookies.get({});
-  } catch (e) {
-    return { found: 0, copied: 0, error: e.message };
-  }
-  const mine = all.filter(c => matchesDomains(c.domain, domains));
-  let copied = 0;
-  for (const c of mine) {
-    try {
-      await toSes.cookies.set(toSetDetails(c));
-      copied++;
-    } catch (e) { /* 하나 실패해도 나머지는 계속 옮긴다 */ }
-  }
-  return { found: mine.length, copied };
-}
-
-// 확장 프로그램이 chrome.cookies 로 읽어 보낸 원본 쿠키를 세션에 주입한다.
-// 크롬 쿠키 객체 모양(name/value/domain/path/secure/httpOnly/sameSite/
-//  expirationDate/hostOnly)은 toSetDetails 가 그대로 다룰 수 있다.
-// 한 번 주입하면 defaultSession 이 디스크에 보관하므로, 브라우저를 닫아도
-// 위젯이 그 쿠키로 사용량 페이지를 단독 조회할 수 있다.
-// 만료가 없는(세션) 쿠키에 붙일 기본 수명. 이걸 붙이지 않으면 Electron 이
-// 세션 쿠키로 저장해 위젯을 끄는 순간 사라지고, 재시작하면 "연결 필요" 가 된다.
-const SESSION_TTL_DAYS = 14;
-
-async function setCookies(ses, rawCookies, opts) {
-  const list = Array.isArray(rawCookies) ? rawCookies : [];
-  const ttlDays = (opts && opts.sessionTtlDays) || SESSION_TTL_DAYS;
-  let set = 0, failed = 0;
-  for (const c of list) {
-    if (!c || !c.name || !c.domain) { failed++; continue; }
-    const details = toSetDetails(c);
-    // 세션 쿠키는 만료를 줘서 디스크에 남긴다 — 위젯을 재시작해도 로그인이 유지된다
-    if (!details.expirationDate) {
-      details.expirationDate = Math.floor(Date.now() / 1000) + ttlDays * 24 * 60 * 60;
-    }
-    // Electron 은 sameSite='no_restriction' 인데 secure=false 이면 거부한다.
-    // 크롬에서 넘어온 값이 어긋나면 unspecified 로 낮춰 주입을 살린다.
-    if (details.sameSite === 'no_restriction' && !details.secure) {
-      details.sameSite = 'unspecified';
-    }
-    try { await ses.cookies.set(details); set++; }
-    catch (e) { failed++; /* 하나 실패해도 나머지는 계속 주입한다 */ }
-  }
-  return { set, failed };
 }
 
 // 제공자 도메인에 해당하는 쿠키만 추린다
@@ -127,6 +59,6 @@ async function isAuthenticated(ses, domains, authNames) {
 }
 
 module.exports = {
-  migrateCookies, setCookies, cookiesFor, removeFor, hasAuthCookie, isAuthenticated,
-  matchesDomains, cookieUrl, toSetDetails, baseDomain,
+  cookiesFor, removeFor, hasAuthCookie, isAuthenticated,
+  matchesDomains, cookieUrl, baseDomain,
 };

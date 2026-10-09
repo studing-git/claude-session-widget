@@ -18,10 +18,8 @@ const ALL = [claude, chatgpt, gemini];
 //
 // gemini: 구글이 임베디드 브라우저(Electron) 조회에 추가 인증을 걸어 사용량
 //   페이지를 받지 못한다. 파서 자체는 멀쩡하므로(캡처본으로 검증됨) 코드는
-//   남겨 둔다. 되살리려면 이 배열에서 'gemini' 만 빼면 된다.
-//   확장 쪽도 함께 되돌려야 한다 — extension/manifest.json 의 content_scripts
-//   항목과 "https://*.google.com/*" host 권한, extension/background.js 의
-//   COOKIE_DOMAINS.gemini.
+//   남겨 둔다. 되살리려면 이 배열에서 'gemini' 만 빼면 된다. 전용 Chrome 로그인
+//   (chrome-runner)으로는 구글도 통하므로 이 방식에선 다시 쓸 수 있을 수 있다.
 const DISABLED = ['gemini'];
 
 const PROVIDERS = ALL.filter(p => !DISABLED.includes(p.id));

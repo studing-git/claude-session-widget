@@ -1,15 +1,13 @@
 process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true';
 
-const { app, BrowserWindow, BrowserView, ipcMain, session, screen, shell } = require('electron');
+const { app, BrowserWindow, BrowserView, ipcMain, session, screen } = require('electron');
 const fs = require('fs');
 const path = require('path');
-const crypto = require('crypto');
 const updater   = require('./updater');
 const providers = require('./providers');
 const identity  = require('./browser-identity');
 const settings  = require('./settings');
 const cookieTools = require('./cookie-tools');
-const extServer   = require('./extension-server');
 const chrome      = require('./chrome-runner');
 
 const SNAP_MARGIN = 0;
@@ -68,46 +66,7 @@ if (!gotSingleInstanceLock) {
 
     // (전용 Chrome 프로필은 로그인 상태를 담고 있으므로 시작 시 지우지 않는다.
     //  필요하면 reset-chrome-profiles / switch-account 로 그때그때 비운다.)
-
-    // 확장 프로그램이 보낸 사용량/쿠키를 받는 로컬 서버
-    extServer.start({
-      isKnownProvider: (id) => !!providers.get(id),
-      onReport: (report) => {
-        extensionReports[report.id] = report;
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('extension-report', report.id);
-        }
-      },
-      onCookies: (payload) => { ingestCookies(payload); },
-    });
   });
-}
-
-// 확장이 보낸 세션 쿠키를 위젯 세션에 주입한다. 한 번 주입하면 defaultSession 이
-// 디스크에 보관하므로, 브라우저를 닫아도 위젯이 그 쿠키로 사용량을 단독 조회한다.
-// 주입 직후 그 제공자를 한 번 조회해 값을 즉시 갱신하고 렌더러에 알린다.
-async function ingestCookies(payload) {
-  const provider = providers.get(payload.id);
-  if (!provider) return;
-  // 확장이 살아 있다는 신호. 사용량 보고(/report)는 사용자가 사용량 페이지에
-  // 있을 때만 오므로, 연결 여부는 쿠키 기부 시각으로도 판단해야 한다.
-  cookieContact[provider.id] = Date.now();
-  try {
-    const res = await cookieTools.setCookies(sessionFor(), payload.cookies);
-    // 쿠키 값은 절대 남기지 않는다 — 주입 개수만 기록한다
-    console.log(`[cookies] ${provider.id}: 주입 ${res.set}개 (실패 ${res.failed})`);
-  } catch (e) {
-    console.error(`[cookies] ${provider.id}: 주입 실패 — ${e.message}`);
-    return;
-  }
-  // 기부는 주기적으로 오지만 대개 내용이 그대로다. 값이 실제로 바뀐 경우에만
-  // 다시 조회해 같은 쿠키로 사이트를 반복 호출하지 않는다.
-  const fp = cookieFingerprint(payload.cookies);
-  if (fp === cookiePrints[provider.id]) return;
-  cookiePrints[provider.id] = fp;
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('cookies-updated', provider.id);
-  }
 }
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
@@ -199,36 +158,10 @@ function sessionFor() {
 // 마지막 조회에서 어디에 도착했고 무엇을 받았는지 기록해 둔다
 const lastFetch = {};
 
-// 확장 프로그램이 보낸 최신 사용량 (id -> report)
-const extensionReports = {};
-const EXTENSION_FRESH_MS = 20 * 60 * 1000;   // 20분 이내 보고만 유효로 본다
-function freshExtensionReport(id) {
-  const r = extensionReports[id];
-  return r && (Date.now() - r.at) < EXTENSION_FRESH_MS ? r : null;
-}
-
-// 확장이 마지막으로 쿠키를 넘긴 시각 / 그 쿠키의 지문(값은 보관하지 않는다)
-const cookieContact = {};
-const cookiePrints  = {};
-
-// 쿠키가 실제로 바뀌었는지만 알면 되므로 해시로 비교한다(원본 값은 남기지 않는다)
-function cookieFingerprint(cookies) {
-  const list = Array.isArray(cookies) ? cookies : [];
-  const text = list.map(c => `${c.name}=${c.value}`).sort().join('\n');
-  return crypto.createHash('sha256').update(text).digest('hex');
-}
-
-// 확장과 연결돼 있는가 — 사용량 보고 또는 쿠키 기부 중 하나만 최근이면 연결로 본다.
-// 사용량 보고는 사용자가 사용량 페이지에 있을 때만 오므로 그것만 보면
-// 멀쩡히 동작하는 중에도 "끊김" 으로 보인다.
-function extensionLinked(id) {
-  if (freshExtensionReport(id)) return true;
-  const at = cookieContact[id];
-  return !!at && (Date.now() - at) < EXTENSION_FRESH_MS;
-}
-
 // 로그인 상태 진단: 제공자별로 세션에 쿠키가 몇 개 있는지 본다.
 // "로그인했는데 안 된다" 일 때 쿠키가 실제로 저장됐는지부터 확인할 수 있다.
+// (Chrome 조회는 쿠키가 Electron 세션이 아니라 전용 Chrome 프로필에 있으므로
+//  여기 쿠키수가 0 이어도 정상이다 — 조회방식으로 구분한다.)
 ipcMain.handle('session-report', async () => {
   const ses = sessionFor();
   const rows = [];
@@ -242,9 +175,8 @@ ipcMain.handle('session-report', async () => {
       쿠키수: cookies.length,
       // 인증 쿠키 이름을 못 맞혔을 수도 있으므로 전체 이름을 그대로 보여준다
       쿠키이름: cookies.map(c => c.name).join(' '),
-      확장: extensionLinked(p.id) ? '연결됨' : '없음',
       최종URL: last.finalUrl || '',
-      조회방식: freshExtensionReport(p.id) ? 'extension' : 'widget',
+      조회방식: backendOf(p.id),
     });
   }
   return rows;
@@ -478,13 +410,6 @@ async function fetchOne(provider) {
   ensurePlan(provider).catch(() => {});
   const planned = (plan) => (plan ? { planOverride: plan } : {});
 
-  // 확장 프로그램이 최근에 보낸 값이 있으면 브라우저 조회 없이 그대로 쓴다.
-  const ext = freshExtensionReport(provider.id);
-  if (ext) {
-    return Object.assign({ id: provider.id, fromExtension: true,
-             plan: ext.plan, note: ext.note, metrics: ext.metrics },
-             planned(cachedPlan(provider.id)));
-  }
   const useChrome = backendOf(provider.id) === 'chrome';
   const res = useChrome ? await fetchViaChrome(provider) : await fetchProviderHtml(provider);
   if (res.html) res.debugFile = saveDebugHtml(provider.id, res.html);
@@ -500,27 +425,11 @@ async function fetchOne(provider) {
   return Object.assign(res, planned(cachedPlan(provider.id)));
 }
 
-ipcMain.handle('extension-status', () => ({
-  connected: providers.ids.filter(extensionLinked),
-}));
-
 // 전용 Chrome 조회가 가능한지 / 어느 제공자가 Chrome 조회인지 알린다.
 ipcMain.handle('chrome-status', () => ({
   available: !!chromePath(),
   backends: Object.fromEntries(providers.ids.map(id => [id, backendOf(id)])),
 }));
-
-// 사용자의 실제(기본) 브라우저에서 사용량 페이지를 연다 — 이미 그 브라우저가
-// 켜져 있으면 새 탭으로 열린다. 그 페이지에서 확장 프로그램의 콘텐츠 스크립트가
-// 실행되어 위젯으로 값을 보낸다. (로그인 URL 이 아니라 사용량 URL 을 열어야
-//  콘텐츠 스크립트의 matches 에 걸린다)
-ipcMain.handle('open-external', async (e, target) => {
-  const provider = providers.get(target);
-  const url = provider ? provider.url : (typeof target === 'string' ? target : '');
-  if (!/^https?:\/\//.test(url)) return { ok: false, message: '잘못된 주소' };
-  try { await shell.openExternal(url); return { ok: true }; }
-  catch (err) { return { ok: false, message: err.message }; }
-});
 
 // 위젯이 만들었던 Chrome 전용 프로필을 삭제하고 조회 방식을 되돌린다
 ipcMain.handle('reset-chrome-profiles', () => {

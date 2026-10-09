@@ -107,16 +107,10 @@ html,body{overflow:hidden;background:#1a1a1a;color:#e8e8e8;font-family:-apple-sy
   padding:2px 4px;border-radius:4px;opacity:0;transition:opacity .15s,color .15s,background .15s;flex-shrink:0;}
 .prow:hover .pswap{opacity:1;}
 .pswap:hover{color:#ccc;background:#2a2a2a;}
-.pbtn-chrome{border-color:#3d5a3d;color:#9c9;}
-.pchrome{display:block;margin-top:3px;margin-left:14px;background:none;border:none;cursor:pointer;
-  font-family:inherit;font-size:8px;color:#4a7a5a;padding:0;text-decoration:underline;
-  text-underline-offset:2px;}
-.pchrome:hover{color:#7cc;}
+/* 일부만 읽힌 경우의 경고 배지 — 값은 맞지만 빠진 항목이 있다는 뜻 */
 .psrc{flex-shrink:0;align-self:flex-start;font-size:8px;color:#5a7a5a;border:1px solid #34503a;
   border-radius:4px;padding:1px 4px;margin-top:2px;}
-/* 일부만 읽힌 경우의 경고 배지 — 값은 맞지만 빠진 항목이 있다는 뜻 */
 .pwarn{color:#b08a4a;border-color:#5a4a2e;}
-.pbtn-chrome:hover{background:#2c3a2c;color:#dfd;}
 .footer-uni{display:flex;justify-content:space-between;align-items:center;padding:7px 14px 10px;border-top:1px solid #2a2a2a;}
 .fnote{font-size:9.5px;color:#3a3a3a;}
 </style>
@@ -215,9 +209,6 @@ const providers = require('./providers');
 // 'uni'(통합·기본) → 'full'(Claude 상세) → 'mini' 순환
 const MODES = ['uni', 'full', 'mini'];
 let mode = 'uni', cache = null, timerInterval = null, updating = false;
-let extInfo = { connected: [] };
-const viaExtension = id => (extInfo.connected || []).includes(id) ||
-  ((cache && cache.providers || []).some(p => p.id === id && p.fromExtension));
 let snapX = 'right', snapY = 'top';
 let retryCount = 0, retryTimeout = null, countInterval = null;
 const RETRY_DELAYS = [30, 60, 120, 300];
@@ -364,25 +355,14 @@ updBtns.forEach(b => { b.title = IDLE_TIP; b.addEventListener('click', onUpdateC
 ipcRenderer.on('update-available', (e, info) => showUpdateBadge(info));
 // 시작 시 1회 확인 (리스너 등록이 끝난 뒤이므로 이벤트 유실 없음)
 ipcRenderer.invoke('check-update').then(res => { if (res && res.available) showUpdateBadge(res); });
-ipcRenderer.invoke('extension-status').then(info => { if (info) extInfo = info; }).catch(() => {});
 // 전용 Chrome 조회가 가능한지 — 로그인 버튼 안내 문구를 상황에 맞게 바꾼다
 let chromeInfo = { available: false, backends: {} };
 ipcRenderer.invoke('chrome-status').then(info => { if (info) chromeInfo = info; }).catch(() => {});
-let extRefreshTimer = null;
-ipcRenderer.on('extension-report', () => {
-  // 여러 보고가 몰려와도 한 번만 갱신한다
-  if (extRefreshTimer) return;
-  extRefreshTimer = setTimeout(() => { extRefreshTimer = null; loadData(true); }, 800);
-});
-// 확장이 쿠키를 넘겨 위젯 세션에 주입되면, 그 쿠키로 곧바로 다시 조회한다
-ipcRenderer.on('cookies-updated', () => {
-  if (extRefreshTimer) return;
-  extRefreshTimer = setTimeout(() => { extRefreshTimer = null; loadData(true); }, 800);
-});
 // 플랜을 뒤늦게 읽어 왔을 때 (조회와 별도로 돌아간다) 화면에 반영한다
+let refreshTimer = null;
 ipcRenderer.on('plan-updated', () => {
-  if (extRefreshTimer) return;
-  extRefreshTimer = setTimeout(() => { extRefreshTimer = null; loadData(true); }, 800);
+  if (refreshTimer) return;
+  refreshTimer = setTimeout(() => { refreshTimer = null; loadData(true); }, 800);
 });
 ipcRenderer.invoke('session-report')
   .then(rows => { if (rows) { console.log('[진단] 제공자별 쿠키 상태'); console.table(rows); } })
@@ -486,12 +466,10 @@ function renderUnified(data) {
   const rowHtml = (p) => {
     let body;
     if (p.state === 'ok') {
-      const src = p.fromExtension
-        ? `<span class="psrc" title="브라우저 확장 프로그램에서 받은 값입니다">확장</span>` : '';
       // 게이지 일부만 해석된 경우 — 보이는 값은 맞지만 빠진 항목이 있다는 걸 알린다
       const part = p.partial
         ? `<span class="psrc pwarn" title="${esc(p.message)}\n페이지 구조가 일부 바뀐 것 같습니다">일부</span>` : '';
-      body = `<div class="pmetrics">${p.metrics.slice(0, 2).map(metricHtml).join('')}</div>${part}${src}`;
+      body = `<div class="pmetrics">${p.metrics.slice(0, 2).map(metricHtml).join('')}</div>${part}`;
     } else if (p.state === 'busy') {
       // 전용 Chrome 로그인 창이 열려 있는 동안. 창을 닫으면 자동으로 읽는다.
       body = `<div class="pstate" title="${esc(p.message)}">
@@ -515,16 +493,12 @@ function renderUnified(data) {
                 : full.length > 16 ? full.slice(0, 16) + '…' : full;
       const col = p.state === 'auth' ? '#6a6a6a' : '#a15c5c';
       const loginTip = chromeInfo.available
-        ? `${p.name} 에 로그인합니다. 진짜 Chrome 창이 열리고(Google 차단 없음), 로그인 후 그 창을 닫으면 반영됩니다. 확장 프로그램이 필요 없습니다.`
-        : 'Chrome 이 설치돼 있지 않아 위젯 내장 창으로 로그인합니다. Google 로그인은 막힐 수 있으니, 막히면 오른쪽 브라우저(확장) 경로를 쓰세요.';
-      // 기본은 Chrome 창 로그인(확장 불필요). 막히거나 Chrome 이 없으면 확장
-      // 경로를 쓸 수 있도록 "브라우저" 버튼도 함께 둔다.
+        ? `${p.name} 에 로그인합니다. 진짜 Chrome 창이 열리고(Google 차단 없음), 로그인 후 그 창을 닫으면 반영됩니다.`
+        : 'Chrome 이 설치돼 있지 않아 위젯 내장 창으로 로그인합니다. Google 로그인은 막힐 수 있으니 Chrome(또는 Edge) 설치를 권합니다.';
       body = `<div class="pstate" title="${esc(full)}">
         <span style="color:${col};flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(msg)}</span>
         <button class="pbtn" data-login="${esc(p.id)}"
-          title="${esc(loginTip)}">로그인</button>
-        <button class="pbtn pbtn-ext" data-connect="${esc(p.id)}"
-          title="확장 프로그램 경로 — 평소 쓰는 브라우저에서 사용량 페이지를 엽니다.&#10;Chrome 이 설치돼 있지 않거나 전용 Chrome 로그인을 쓰기 싫을 때.">브라우저</button></div>`;
+          title="${esc(loginTip)}">로그인</button></div>`;
     }
     return `<div class="prow">
       <div class="pwho">
@@ -546,8 +520,6 @@ function renderUnified(data) {
 
   document.querySelectorAll('#uniContent [data-swap]').forEach(b =>
     b.addEventListener('click', () => switchAccount(b.getAttribute('data-swap'))));
-  document.querySelectorAll('#uniContent [data-connect]').forEach(b =>
-    b.addEventListener('click', () => connectProvider(b.getAttribute('data-connect'))));
   document.querySelectorAll('#uniContent [data-login]').forEach(b =>
     b.addEventListener('click', () => loginProvider(b.getAttribute('data-login'))));
   resizeToContent();
@@ -810,13 +782,6 @@ function toProviderState(res) {
       message: res.message || res.error,
     });
   }
-  // 확장 프로그램이 보낸 값은 이미 파싱돼 있다. 그대로 정규화 상태로 감싼다.
-  if (res.fromExtension) {
-    return Object.assign(base, {
-      state: 'ok', plan: res.planOverride || res.plan || '', note: res.note || '', fromExtension: true,
-      metrics: (res.metrics || []).map(m => Object.assign({ gauge: true, reset: '', detail: '' }, m)),
-    });
-  }
   const parsed = providers.parseHtml(res.id, res.html, DOMParser);
   // 파서가 지표를 못 얻었을 때, 인증 쿠키가 없다는 걸 아는 경우에만 '로그인 필요'로
   // 올린다. 쿠키가 멀쩡한데 못 읽었다면 그건 파싱 실패이므로 그대로 알린다 —
@@ -846,15 +811,7 @@ async function loadData(force = false) {
   setLoading(true);
   let results;
   try {
-    // 확장 연결 상태도 매번 새로 읽는다. 시작할 때 한 번만 읽으면 그 뒤로 영영
-    // 갱신되지 않아, 멀쩡히 연결돼 있는데도 '확장' 배지가 사라진 채로 남는다.
-    const [fetched] = await Promise.all([
-      ipcRenderer.invoke('fetch-all', providers.ids),
-      ipcRenderer.invoke('extension-status')
-        .then(info => { if (info) extInfo = info; })
-        .catch(() => {}),
-    ]);
-    results = fetched;
+    results = await ipcRenderer.invoke('fetch-all', providers.ids);
   } catch (e) {
     results = providers.ids.map(id => ({ id, error: 'unknown', message: e.message }));
   }
@@ -888,15 +845,6 @@ async function loginProvider(id) {
   setFooter(res.backend === 'chrome'
     ? `${name} Chrome 창을 열었습니다 — 로그인한 뒤 그 창을 닫으면 반영됩니다`
     : `${name} 로그인 창을 열었습니다 — 로그인하면 자동으로 반영됩니다`);
-}
-
-// 확장 경로(보조). 평소 쓰는 실제 브라우저에서 사용량 페이지를 새 탭으로 연다.
-// 그 페이지에서 확장 프로그램이 값·쿠키를 읽어 위젯으로 보낸다.
-// 위젯 로그인이 막히는 경우(예: Google 계정)에 쓴다.
-async function connectProvider(id) {
-  const res = await ipcRenderer.invoke('open-external', id);
-  if (res && res.ok) setFooter('브라우저에서 사용량 페이지를 열었습니다 — 확장 프로그램이 값을 가져옵니다');
-  else setFooter(`열기 실패: ${(res && res.message) || ''}`);
 }
 
 // 계정 전환: 위젯에 저장된 그 서비스 로그인을 지우고 다시 로그인 창을 연다.
