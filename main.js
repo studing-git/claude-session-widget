@@ -508,19 +508,102 @@ ipcMain.handle('fetch-all', async (e, ids) => {
   return Promise.all(list.map(fetchOne));
 });
 
-// 계정 전환: 확장 프로그램은 사용자의 평소 브라우저 계정을 그대로 읽으므로,
-// 위젯 내장 창이 아니라 실제 브라우저에서 계정을 바꾸도록 그 브라우저를 연다.
-// (구글은 계정 선택 화면, Claude·ChatGPT 는 로그인 화면 — 로그아웃 후 다른 계정으로)
-// 계정을 바꾸고 사용량 페이지를 열면 확장이 새 계정 값을 위젯으로 보낸다.
+// ── 위젯 안에서 직접 로그인 ──
+// 확장 없이도 쓸 수 있는 기본 경로. 이 창에서 로그인하면 쿠키가 위젯 세션
+// (defaultSession, 디스크 영속)에 바로 저장되고, 기존 오프스크린 조회가 그
+// 쿠키를 그대로 쓴다. 사이트가 직접 심어 주는 쿠키라 확장이 넘겨준 세션 쿠키에
+// 만료를 억지로 붙일 필요도 없다.
+//
+// 한때 이 경로를 들어냈던 이유는 Google 이었다 — 임베디드 브라우저에서 Google
+// 로그인을 거부한다("브라우저 또는 앱이 안전하지 않을 수 있습니다"). Gemini 를
+// 뺀 지금은 Claude·ChatGPT 의 이메일 로그인만 쓰면 되므로 다시 쓸 수 있다.
+// 다만 Google 계정으로 로그인하면 여전히 막히므로, 그때는 확장 경로를 쓴다.
+function openLoginWindow(provider) {
+  const label = `[위젯] ${provider.name} 로그인`;
+  const w = new BrowserWindow({
+    width: 520, height: 720, alwaysOnTop: true,
+    title: label, autoHideMenuBar: true,
+    webPreferences: { session: sessionFor() },
+  });
+  // 페이지가 제목을 덮어쓰면 위젯 창인지 별도 앱인지 구분할 수 없다
+  w.setTitle(label);
+  w.on('page-title-updated', (e) => { e.preventDefault(); });
+
+  const notify = (authed) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('login-done', provider.id, { authed });
+    }
+  };
+
+  // 로그인이 끝나면 창은 그냥 그 서비스 앱 화면이 된다. 창을 닫을 때까지 기다리면
+  // 위젯이 아무 신호도 못 받으므로, 인증 쿠키가 생기는 순간을 직접 감시한다.
+  let done = false;
+  const timer = setInterval(async () => {
+    if (done || w.isDestroyed()) return;
+    let authed = false;
+    try {
+      authed = await cookieTools.isAuthenticated(
+        sessionFor(), provider.cookieDomains, provider.authCookies);
+    } catch (e) { return; }
+    if (!authed) return;
+    done = true;
+    clearInterval(timer);
+    if (!w.isDestroyed()) w.setTitle(`${label} — 완료, 창을 닫아도 됩니다`);
+    notify(true);                       // 창이 열려 있어도 위젯은 바로 갱신된다
+  }, 1000);
+
+  w.on('closed', async () => {
+    clearInterval(timer);
+    if (done) { notify(true); return; }
+    let authed = null;
+    try {
+      authed = await cookieTools.isAuthenticated(
+        sessionFor(), provider.cookieDomains, provider.authCookies);
+    } catch (e) {}
+    notify(authed);
+  });
+
+  // 인증 쿠키 이름을 잘못 알고 있을 수도 있다. 쿠키에 의존하지 않는 신호도 함께 본다:
+  // 로그인 페이지를 벗어나 그 서비스의 일반 페이지로 이동하면 로그인된 것으로 본다.
+  w.webContents.on('did-navigate', (e, url) => {
+    if (done || looksLikeLogin(url)) return;
+    setTimeout(() => {
+      if (done || w.isDestroyed()) return;
+      done = true;
+      clearInterval(timer);
+      if (!w.isDestroyed()) w.setTitle(`${label} — 완료, 창을 닫아도 됩니다`);
+      notify(true);
+    }, 1500);          // 리다이렉트가 이어질 수 있어 잠시 기다린다
+  });
+
+  w.loadURL(provider.loginUrl);
+  return w;
+}
+
+// 위젯 안에서 로그인한다 (확장 없이 쓰는 기본 경로)
+ipcMain.handle('open-login', (e, id) => {
+  const provider = providers.get(id);
+  if (!provider) return { ok: false, message: '알 수 없는 제공자' };
+  try { openLoginWindow(provider); return { ok: true }; }
+  catch (err) { return { ok: false, message: err.message }; }
+});
+
+// 계정 전환: 위젯 세션의 그 제공자 쿠키만 지우고 로그인 창을 다시 연다.
+// 비우지 않으면 사이트가 기존 쿠키를 보고 곧바로 로그인 상태로 넘어가
+// 계정 선택 화면이 나오지 않는다. 다른 서비스 로그인은 그대로 유지된다.
+//
+// 확장 경로를 쓰는 중이라면 확장이 평소 브라우저 계정을 다시 넘겨주므로,
+// 그쪽 계정을 바꾸려면 브라우저에서 바꾼 뒤 사용량 페이지를 한 번 열면 된다.
 ipcMain.handle('switch-account', async (e, id) => {
   const provider = providers.get(id);
   if (!provider) return { ok: false, message: '알 수 없는 제공자' };
-  const url = provider.switchUrl || provider.loginUrl || provider.url;
-  if (!/^https?:\/\//.test(url)) return { ok: false, message: '잘못된 주소' };
   try {
-    await shell.openExternal(url);
+    const res = await cookieTools.removeFor(sessionFor(), provider.cookieDomains);
+    console.log(`[switch] ${provider.id}: 쿠키 ${res.removed}/${res.found}개 삭제`);
+    openLoginWindow(provider);
     return { ok: true };
   } catch (err) {
     return { ok: false, message: err.message };
   }
 });
+
