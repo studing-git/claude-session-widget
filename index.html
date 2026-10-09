@@ -365,6 +365,9 @@ ipcRenderer.on('update-available', (e, info) => showUpdateBadge(info));
 // 시작 시 1회 확인 (리스너 등록이 끝난 뒤이므로 이벤트 유실 없음)
 ipcRenderer.invoke('check-update').then(res => { if (res && res.available) showUpdateBadge(res); });
 ipcRenderer.invoke('extension-status').then(info => { if (info) extInfo = info; }).catch(() => {});
+// 전용 Chrome 조회가 가능한지 — 로그인 버튼 안내 문구를 상황에 맞게 바꾼다
+let chromeInfo = { available: false, backends: {} };
+ipcRenderer.invoke('chrome-status').then(info => { if (info) chromeInfo = info; }).catch(() => {});
 let extRefreshTimer = null;
 ipcRenderer.on('extension-report', () => {
   // 여러 보고가 몰려와도 한 번만 갱신한다
@@ -489,6 +492,10 @@ function renderUnified(data) {
       const part = p.partial
         ? `<span class="psrc pwarn" title="${esc(p.message)}\n페이지 구조가 일부 바뀐 것 같습니다">일부</span>` : '';
       body = `<div class="pmetrics">${p.metrics.slice(0, 2).map(metricHtml).join('')}</div>${part}${src}`;
+    } else if (p.state === 'busy') {
+      // 전용 Chrome 로그인 창이 열려 있는 동안. 창을 닫으면 자동으로 읽는다.
+      body = `<div class="pstate" title="${esc(p.message)}">
+        <span style="color:#6a8a6a;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">로그인 후 창 닫기</span></div>`;
     } else {
       // auth 가 아닌 error 도 대부분 로그인이 안 된 상태다. 로그아웃 상태의 SPA는
       // 로그인 URL로 리다이렉트하지 않고 빈 페이지만 그려 지표를 못 찾는 경우가 많다.
@@ -507,14 +514,17 @@ function renderUnified(data) {
                 : /시간 초과|timeout/i.test(full) ? '시간 초과'
                 : full.length > 16 ? full.slice(0, 16) + '…' : full;
       const col = p.state === 'auth' ? '#6a6a6a' : '#a15c5c';
-      // 기본은 위젯 안에서 바로 로그인(확장 불필요). 막히면 확장 경로를 쓸 수
-      // 있도록 "브라우저" 버튼도 함께 둔다.
+      const loginTip = chromeInfo.available
+        ? `${p.name} 에 로그인합니다. 진짜 Chrome 창이 열리고(Google 차단 없음), 로그인 후 그 창을 닫으면 반영됩니다. 확장 프로그램이 필요 없습니다.`
+        : 'Chrome 이 설치돼 있지 않아 위젯 내장 창으로 로그인합니다. Google 로그인은 막힐 수 있으니, 막히면 오른쪽 브라우저(확장) 경로를 쓰세요.';
+      // 기본은 Chrome 창 로그인(확장 불필요). 막히거나 Chrome 이 없으면 확장
+      // 경로를 쓸 수 있도록 "브라우저" 버튼도 함께 둔다.
       body = `<div class="pstate" title="${esc(full)}">
         <span style="color:${col};flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(msg)}</span>
         <button class="pbtn" data-login="${esc(p.id)}"
-          title="위젯 안에서 ${esc(p.name)} 에 로그인합니다. 확장 프로그램 없이 바로 연결됩니다.">로그인</button>
+          title="${esc(loginTip)}">로그인</button>
         <button class="pbtn pbtn-ext" data-connect="${esc(p.id)}"
-          title="확장 프로그램 경로 — 평소 쓰는 브라우저에서 사용량 페이지를 엽니다.&#10;위젯 로그인이 막힐 때(예: Google 계정) 쓰세요.">브라우저</button></div>`;
+          title="확장 프로그램 경로 — 평소 쓰는 브라우저에서 사용량 페이지를 엽니다.&#10;Chrome 이 설치돼 있지 않거나 전용 Chrome 로그인을 쓰기 싫을 때.">브라우저</button></div>`;
     }
     return `<div class="prow">
       <div class="pwho">
@@ -594,7 +604,7 @@ function renderMini(data) {
             showGauge ? pct + '%' : esc(m.value != null ? m.value : '—')}</span>`;
         }).join('')
       : `<span class="mcell" style="color:#6a6a6a;flex:2">${
-          p.state === 'auth' ? '로그인' : p.state === 'parse' ? '읽기 실패' : '오류'}</span>`;
+          p.state === 'auth' ? '로그인' : p.state === 'parse' ? '읽기 실패' : p.state === 'busy' ? '창 닫기' : '오류'}</span>`;
     // 이름 텍스트 대신 브랜드 아이콘만 두므로, 이름은 툴팁 첫 줄로 보여 준다
     const detail = p.state === 'ok'
       ? p.metrics.slice(0, 2).map(m => `${m.label} ${m.gauge === false ? m.value : m.pct + '%'}${m.reset ? ' · ' + shortReset(m.reset) : ''}`).join('\n')
@@ -787,8 +797,16 @@ function toProviderState(res) {
     plan: '', note: '', metrics: [], state: 'error', message: '',
   };
   if (res.error) {
+    // 전용 Chrome 로그인 창이 열려 있으면 그 프로필로 헤드리스 조회를 못 한다.
+    // 오류가 아니라 "창을 닫으면 읽습니다" 라는 안내 상태로 다룬다.
+    if (res.error === 'chrome_busy') {
+      return Object.assign(base, { state: 'busy',
+        message: res.message || 'Chrome 로그인 창을 닫으면 사용량을 읽습니다' });
+    }
+    // chrome 조회인데 로그인이 안 된 경우(빈 페이지 등)는 로그인 안내로 모은다.
+    const authish = res.error === 'auth' || res.error === 'chrome_empty';
     return Object.assign(base, {
-      state: res.error === 'auth' ? 'auth' : 'error',
+      state: authish ? 'auth' : 'error',
       message: res.message || res.error,
     });
   }
@@ -858,14 +876,18 @@ async function loadData(force = false) {
   else scheduleRetry();
 }
 
-// 위젯 안에서 바로 로그인한다 (기본 경로 — 확장 프로그램이 필요 없다).
-// 로그인하면 쿠키가 위젯 세션에 저장되고, 그 쿠키로 사용량을 직접 읽는다.
+// 로그인 (기본 경로 — 확장 프로그램이 필요 없다).
+// Chrome 이 있으면 진짜 Chrome 창을 띄운다(Google 차단 우회). 로그인한 뒤
+// 그 창을 닫으면 위젯이 그 프로필로 사용량을 읽는다. Chrome 이 없으면 위젯
+// 내장 창으로 로그인하고, 그 경우 쿠키가 위젯 세션에 바로 저장된다.
 async function loginProvider(id) {
   const p = providers.get(id);
   const name = p ? p.name : id;
   const res = await ipcRenderer.invoke('open-login', id);
-  if (res && res.ok) setFooter(`${name} 로그인 창을 열었습니다 — 로그인하면 자동으로 반영됩니다`);
-  else setFooter(`로그인 창 열기 실패: ${(res && res.message) || ''}`);
+  if (!res || !res.ok) { setFooter(`로그인 창 열기 실패: ${(res && res.message) || ''}`); return; }
+  setFooter(res.backend === 'chrome'
+    ? `${name} Chrome 창을 열었습니다 — 로그인한 뒤 그 창을 닫으면 반영됩니다`
+    : `${name} 로그인 창을 열었습니다 — 로그인하면 자동으로 반영됩니다`);
 }
 
 // 확장 경로(보조). 평소 쓰는 실제 브라우저에서 사용량 페이지를 새 탭으로 연다.
