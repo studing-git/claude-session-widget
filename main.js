@@ -10,6 +10,7 @@ const identity  = require('./browser-identity');
 const settings  = require('./settings');
 const cookieTools = require('./cookie-tools');
 const extServer   = require('./extension-server');
+const chrome      = require('./chrome-runner');
 
 const SNAP_MARGIN = 0;
 const UPDATE_CHECK_INTERVAL = 30 * 60 * 1000;
@@ -65,7 +66,8 @@ if (!gotSingleInstanceLock) {
     // 시작 시 확인은 렌더러가 준비된 뒤 직접 호출한다(check-update). 이후 30분마다 재확인.
     updateTimer = setInterval(runUpdateCheck, UPDATE_CHECK_INTERVAL);
 
-    cleanupChromeProfiles();   // 예전 위젯 전용 Chrome 프로필 정리
+    // (전용 Chrome 프로필은 로그인 상태를 담고 있으므로 시작 시 지우지 않는다.
+    //  필요하면 reset-chrome-profiles / switch-account 로 그때그때 비운다.)
 
     // 확장 프로그램이 보낸 사용량/쿠키를 받는 로컬 서버
     extServer.start({
@@ -352,15 +354,21 @@ function fetchProviderHtml(provider, opts = {}) {
 // ── 외부 Chrome 경로 ──
 function userDataDir() { return app.getPath('userData'); }
 
-// 예전에 쓰던 위젯 전용 Chrome 프로필을 정리한다.
-// 그 프로필은 사용자의 실제(로그인된) 브라우저와 무관한 빈 프로필이라
-// 혼란만 준다. 이제 실제 브라우저 활용은 확장 프로그램이 담당한다.
+// 한 제공자의 전용 Chrome 프로필만 지운다 (계정 전환 시).
+function removeChromeProfile(id) {
+  try {
+    const dir = chrome.profileDir(userDataDir(), id);
+    if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
+  } catch (e) {}
+}
+
+// 전용 Chrome 프로필을 모두 지우고 조회 방식을 Electron 으로 되돌린다.
+// (reset-chrome-profiles IPC — 사용자가 Chrome 방식을 완전히 접을 때)
 function cleanupChromeProfiles() {
   try {
     const dir = path.join(userDataDir(), 'chrome-profiles');
     if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
   } catch (e) {}
-  // 조회 방식이 chrome 으로 저장돼 있던 것을 모두 위젯 세션으로 되돌린다
   try {
     for (const id of providers.ids) {
       if (settings.getBackend(userDataDir(), id) === 'chrome') {
@@ -445,6 +453,25 @@ async function ensurePlan(provider) {
   }
 }
 
+// ── 전용 Chrome 조회 ──
+// Electron 임베디드 브라우저는 Google 에 "안전하지 않은 브라우저"로 막힌다.
+// 진짜 Chrome(전용 프로필)으로 로그인·조회하면 막히지 않는다. Chrome 이 설치돼
+// 있으면 이 방식을 기본으로 쓰고, 없으면 Electron 조회로 폴백한다.
+let chromePathCache;
+function chromePath() {
+  if (chromePathCache === undefined) chromePathCache = chrome.findChrome();
+  return chromePathCache;
+}
+// 제공자별 조회 방식. Chrome 이 없으면 무조건 electron.
+function backendOf(id) {
+  return chromePath() ? settings.getBackend(userDataDir(), id) : 'electron';
+}
+function fetchViaChrome(provider) {
+  return chrome
+    .fetchHtml(chromePath(), chrome.profileDir(userDataDir(), provider.id), provider.url)
+    .then(res => Object.assign({ id: provider.id }, res));
+}
+
 async function fetchOne(provider) {
   // 플랜은 사용량과 다른 화면에 있어 따로 읽는다. 조회가 느려지지 않도록
   // 기다리지 않고, 캐시에 있는 값을 먼저 쓴다(처음엔 비어 있다가 곧 채워진다).
@@ -452,26 +479,35 @@ async function fetchOne(provider) {
   const planned = (plan) => (plan ? { planOverride: plan } : {});
 
   // 확장 프로그램이 최근에 보낸 값이 있으면 브라우저 조회 없이 그대로 쓴다.
-  // 사용자의 로그인된 실제 브라우저에서 읽은 값이라 별도 로그인이 필요 없다.
   const ext = freshExtensionReport(provider.id);
   if (ext) {
     return Object.assign({ id: provider.id, fromExtension: true,
              plan: ext.plan, note: ext.note, metrics: ext.metrics },
              planned(cachedPlan(provider.id)));
   }
-  const res = await fetchProviderHtml(provider);
+  const useChrome = backendOf(provider.id) === 'chrome';
+  const res = useChrome ? await fetchViaChrome(provider) : await fetchProviderHtml(provider);
   if (res.html) res.debugFile = saveDebugHtml(provider.id, res.html);
   lastFetch[provider.id] = { finalUrl: res.finalUrl || '', debugFile: res.debugFile || '' };
-  // 지표를 못 찾았을 때 원인이 미로그인인지 구분할 수 있게 인증 여부를 함께 보낸다
-  try {
-    res.authed = await cookieTools.isAuthenticated(
-      sessionFor(), provider.cookieDomains, provider.authCookies);
-  } catch (e) { /* 판단 불가면 그대로 둔다 */ }
+  // 지표를 못 찾았을 때 원인이 미로그인인지 구분할 수 있게 인증 여부를 함께 보낸다.
+  // Chrome 프로필의 쿠키는 Electron 세션에 없으므로 그쪽은 인증 판정을 건너뛴다.
+  if (!useChrome) {
+    try {
+      res.authed = await cookieTools.isAuthenticated(
+        sessionFor(), provider.cookieDomains, provider.authCookies);
+    } catch (e) { /* 판단 불가면 그대로 둔다 */ }
+  }
   return Object.assign(res, planned(cachedPlan(provider.id)));
 }
 
 ipcMain.handle('extension-status', () => ({
   connected: providers.ids.filter(extensionLinked),
+}));
+
+// 전용 Chrome 조회가 가능한지 / 어느 제공자가 Chrome 조회인지 알린다.
+ipcMain.handle('chrome-status', () => ({
+  available: !!chromePath(),
+  backends: Object.fromEntries(providers.ids.map(id => [id, backendOf(id)])),
 }));
 
 // 사용자의 실제(기본) 브라우저에서 사용량 페이지를 연다 — 이미 그 브라우저가
@@ -581,26 +617,52 @@ function openLoginWindow(provider) {
 }
 
 // 위젯 안에서 로그인한다 (확장 없이 쓰는 기본 경로)
+// 진짜 Chrome 창을 띄워 로그인하고, 그 제공자를 Chrome 조회로 전환한다.
+// 창이 닫히면(=로그인 마치고 사용자가 닫으면) 프로필 잠금이 풀리므로
+// 렌더러에 알려 곧바로 다시 조회하게 한다. Chrome 이 없으면 Electron 창으로 폴백.
+function openChromeLogin(provider) {
+  const exe = chromePath();
+  const profile = chrome.profileDir(userDataDir(), provider.id);
+  const child = chrome.openLogin(exe, profile, provider.loginUrl);
+  settings.setBackend(userDataDir(), provider.id, 'chrome');
+  const notify = () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('login-done', provider.id, { authed: null });
+    }
+  };
+  // 창을 닫으면 조회가 가능해진다. 바로 갱신하도록 알린다.
+  child.on('exit', notify);
+  return child;
+}
+
 ipcMain.handle('open-login', (e, id) => {
   const provider = providers.get(id);
   if (!provider) return { ok: false, message: '알 수 없는 제공자' };
-  try { openLoginWindow(provider); return { ok: true }; }
-  catch (err) { return { ok: false, message: err.message }; }
+  try {
+    if (chromePath()) { openChromeLogin(provider); return { ok: true, backend: 'chrome' }; }
+    openLoginWindow(provider);                 // Chrome 이 없으면 Electron 창
+    return { ok: true, backend: 'electron' };
+  } catch (err) {
+    return { ok: false, message: err.message };
+  }
 });
 
-// 계정 전환: 위젯 세션의 그 제공자 쿠키만 지우고 로그인 창을 다시 연다.
-// 비우지 않으면 사이트가 기존 쿠키를 보고 곧바로 로그인 상태로 넘어가
-// 계정 선택 화면이 나오지 않는다. 다른 서비스 로그인은 그대로 유지된다.
-//
-// 확장 경로를 쓰는 중이라면 확장이 평소 브라우저 계정을 다시 넘겨주므로,
-// 그쪽 계정을 바꾸려면 브라우저에서 바꾼 뒤 사용량 페이지를 한 번 열면 된다.
+// 계정 전환: 그 제공자의 로그인을 비우고 다시 로그인한다.
+//  - Chrome 조회면 전용 프로필 폴더를 통째로 지운다(그 프로필의 로그인만).
+//  - Electron 조회면 위젯 세션의 그 도메인 쿠키만 지운다.
+// 지우지 않으면 사이트가 기존 로그인을 인정해 계정 선택 화면이 안 나온다.
 ipcMain.handle('switch-account', async (e, id) => {
   const provider = providers.get(id);
   if (!provider) return { ok: false, message: '알 수 없는 제공자' };
   try {
-    const res = await cookieTools.removeFor(sessionFor(), provider.cookieDomains);
-    console.log(`[switch] ${provider.id}: 쿠키 ${res.removed}/${res.found}개 삭제`);
-    openLoginWindow(provider);
+    if (backendOf(provider.id) === 'chrome') {
+      removeChromeProfile(provider.id);
+      openChromeLogin(provider);
+    } else {
+      const res = await cookieTools.removeFor(sessionFor(), provider.cookieDomains);
+      console.log(`[switch] ${provider.id}: 쿠키 ${res.removed}/${res.found}개 삭제`);
+      openLoginWindow(provider);
+    }
     return { ok: true };
   } catch (err) {
     return { ok: false, message: err.message };
