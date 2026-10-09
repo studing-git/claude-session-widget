@@ -507,11 +507,14 @@ function renderUnified(data) {
                 : /시간 초과|timeout/i.test(full) ? '시간 초과'
                 : full.length > 16 ? full.slice(0, 16) + '…' : full;
       const col = p.state === 'auth' ? '#6a6a6a' : '#a15c5c';
-      // 평소 쓰는 실제 브라우저에서 사용량 페이지를 열어 확장 프로그램으로 연결한다
+      // 기본은 위젯 안에서 바로 로그인(확장 불필요). 막히면 확장 경로를 쓸 수
+      // 있도록 "브라우저" 버튼도 함께 둔다.
       body = `<div class="pstate" title="${esc(full)}">
         <span style="color:${col};flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(msg)}</span>
+        <button class="pbtn" data-login="${esc(p.id)}"
+          title="위젯 안에서 ${esc(p.name)} 에 로그인합니다. 확장 프로그램 없이 바로 연결됩니다.">로그인</button>
         <button class="pbtn pbtn-ext" data-connect="${esc(p.id)}"
-          title="평소 쓰는 브라우저에서 사용량 페이지를 엽니다. 확장 프로그램이 그 값을 위젯으로 보냅니다.">연결하기</button></div>`;
+          title="확장 프로그램 경로 — 평소 쓰는 브라우저에서 사용량 페이지를 엽니다.&#10;위젯 로그인이 막힐 때(예: Google 계정) 쓰세요.">브라우저</button></div>`;
     }
     return `<div class="prow">
       <div class="pwho">
@@ -520,7 +523,7 @@ function renderUnified(data) {
       </div>
       ${body}
       ${p.state === 'ok'
-        ? `<button class="pswap" data-swap="${esc(p.id)}" title="${esc(p.name)} 계정 전환 — 평소 쓰는 브라우저에서 다른 계정으로 로그인합니다">전환</button>`
+        ? `<button class="pswap" data-swap="${esc(p.id)}" title="${esc(p.name)} 계정 전환 — 위젯에 저장된 로그인을 지우고 다시 로그인합니다">전환</button>`
         : ''}
     </div>`;
   };
@@ -535,6 +538,8 @@ function renderUnified(data) {
     b.addEventListener('click', () => switchAccount(b.getAttribute('data-swap'))));
   document.querySelectorAll('#uniContent [data-connect]').forEach(b =>
     b.addEventListener('click', () => connectProvider(b.getAttribute('data-connect'))));
+  document.querySelectorAll('#uniContent [data-login]').forEach(b =>
+    b.addEventListener('click', () => loginProvider(b.getAttribute('data-login'))));
   resizeToContent();
 }
 
@@ -549,10 +554,10 @@ function renderFull(data) {
       `<div class="body-full"><div class="state-box" style="padding:28px 14px;font-size:12px;">
         ${isAuth ? '🔗 Claude 연결이 필요합니다' : '⚠️ 데이터를 불러오지 못했습니다'}
         <div style="color:#ef4444;font-size:11px;margin-top:4px;">${esc(c ? c.message : '')}</div>
-        ${isAuth ? '<button class="login-btn" data-connect="claude">연결하기</button>' : ''}
+        ${isAuth ? '<button class="login-btn" data-login="claude">로그인</button>' : ''}
       </div></div>`;
-    document.querySelectorAll('#fullContent [data-connect]').forEach(b =>
-      b.addEventListener('click', () => connectProvider('claude')));
+    document.querySelectorAll('#fullContent [data-login]').forEach(b =>
+      b.addEventListener('click', () => loginProvider('claude')));
     resizeToContent();
     return;
   }
@@ -853,24 +858,45 @@ async function loadData(force = false) {
   else scheduleRetry();
 }
 
-// 평소 쓰는 실제 브라우저에서 사용량 페이지를 새 탭으로 연다.
-// 그 페이지에서 확장 프로그램이 값을 읽어 위젯으로 보낸다(= 연결).
+// 위젯 안에서 바로 로그인한다 (기본 경로 — 확장 프로그램이 필요 없다).
+// 로그인하면 쿠키가 위젯 세션에 저장되고, 그 쿠키로 사용량을 직접 읽는다.
+async function loginProvider(id) {
+  const p = providers.get(id);
+  const name = p ? p.name : id;
+  const res = await ipcRenderer.invoke('open-login', id);
+  if (res && res.ok) setFooter(`${name} 로그인 창을 열었습니다 — 로그인하면 자동으로 반영됩니다`);
+  else setFooter(`로그인 창 열기 실패: ${(res && res.message) || ''}`);
+}
+
+// 확장 경로(보조). 평소 쓰는 실제 브라우저에서 사용량 페이지를 새 탭으로 연다.
+// 그 페이지에서 확장 프로그램이 값·쿠키를 읽어 위젯으로 보낸다.
+// 위젯 로그인이 막히는 경우(예: Google 계정)에 쓴다.
 async function connectProvider(id) {
   const res = await ipcRenderer.invoke('open-external', id);
   if (res && res.ok) setFooter('브라우저에서 사용량 페이지를 열었습니다 — 확장 프로그램이 값을 가져옵니다');
   else setFooter(`열기 실패: ${(res && res.message) || ''}`);
 }
 
-// 계정 전환: 위젯 창이 아니라 평소 쓰는 실제 브라우저에서 계정을 바꾼다.
-// 브라우저에서 다른 계정으로 로그인한 뒤 사용량 페이지를 열면, 확장 프로그램이
-// 새 계정의 값을 위젯으로 보낸다.
+// 계정 전환: 위젯에 저장된 그 서비스 로그인을 지우고 다시 로그인 창을 연다.
+// (지우지 않으면 사이트가 기존 로그인을 그대로 인정해 계정 선택 화면이 안 나온다)
 async function switchAccount(id) {
   const p = providers.get(id);
   const name = p ? p.name : id;
+  if (!confirm(`${name} 로그인을 지우고 다른 계정으로 로그인할까요?\n\n다른 서비스의 로그인은 그대로 유지됩니다.`)) return;
   const res = await ipcRenderer.invoke('switch-account', id);
-  if (res && res.ok) setFooter(`브라우저에서 ${name} 계정을 전환하세요 — 로그인 후 사용량 페이지를 열면 반영됩니다`);
+  if (res && res.ok) setFooter(`${name} 로그인을 지웠습니다 — 열린 창에서 다른 계정으로 로그인하세요`);
   else setFooter(`계정 전환 실패: ${(res && res.message) || ''}`);
 }
+
+// 로그인 창이 결과를 알려 오면 바로 갱신한다 (창을 닫지 않아도 반영된다)
+ipcRenderer.on('login-done', (e, id, info) => {
+  const p = providers.get(id);
+  const name = p ? p.name : id;
+  if (info && info.authed === false) {
+    setFooter(`${name} 로그인이 저장되지 않았습니다 — 위젯 로그인 창에서 로그인해 주세요`);
+  }
+  loadData(true);
+});
 
 setMode('uni');
 loadData(true);
