@@ -59,6 +59,10 @@ const COMMON_ARGS = [
 ];
 
 function loginArgs(profile, url) {
+  // 로그인 창은 "평범한 Chrome" 이어야 한다. 한때 디버깅 포트(--remote-debugging-port)를
+  // 붙여 로그인 완료를 자동 감지하려 했으나, Cloudflare 의 "사람인지 확인(Turnstile)"이
+  // 그 포트를 봇 신호로 보고 무한 루프에 빠뜨렸다(체크해도 안 넘어감). 그래서 자동화
+  // 냄새가 나는 플래그는 붙이지 않는다. 사용자가 로그인한 뒤 창을 닫으면 반영한다.
   return [...COMMON_ARGS, `--user-data-dir=${profile}`, '--new-window', url];
 }
 
@@ -77,8 +81,44 @@ function fetchArgs(profile, url, budgetMs = 20000, extraArgs = []) {
 
 // 프로필이 이미 사용 중이면 헤드리스 실행이 실패한다(로그인 창이 열려 있는 경우).
 // 사용자에게 알려줄 수 있도록 따로 판별한다.
+//
+// "Failed to create a ProcessSingleton" 은 플랫폼 공통 메시지(chrome_main_delegate)
+// 이지만, Windows·mac 은 상황에 따라 다른 문구를 내므로 넉넉하게 본다.
 function isProfileLocked(stderr = '') {
-  return /ProcessSingleton|profile (?:appears to be )?in use|Failed to create a ProcessSingleton/i.test(stderr);
+  return /ProcessSingleton|SingletonLock|lock ?file|profile (?:appears to be |is )?in use|in use by another|being used by|already (?:running|in use)|the process cannot access the file because it is being used/i
+    .test(stderr);
+}
+
+// execFile 결과를 조회 결과로 분류한다. 실행 실패·잠금·시간초과·빈 페이지를 구분해야
+// 호출자가 "로그인 창을 닫으세요(busy)" 와 "진짜 실패(failed)" 를 다르게 안내할 수 있다.
+// 순수 함수로 두어 단위 테스트가 쉽다.
+//   errCode : execFile err.code (정상 종료는 0, 실행 파일 없음은 'ENOENT', 그 외 종료 코드)
+//   killed  : 타임아웃 등으로 강제 종료됐는지
+function classifyFetch({ errCode = 0, killed = false, stdout = '', stderr = '' } = {}) {
+  const out = stdout || '';
+  if (errCode === 'ENOENT') {
+    return { error: 'chrome_failed', message: 'Chrome 실행 파일을 찾지 못했습니다' };
+  }
+  // 로그인 창이 같은 프로필을 점유 중 — 오류가 아니라 "창을 닫으면 됩니다" 안내 대상.
+  // Windows 는 이때 stderr 없이 종료 코드 21(프로필 사용 중/ProcessSingleton)만 남긴다.
+  // 리눅스에서도 같은 코드라, 메시지를 못 알아봐도 코드로 잠금을 판단한다.
+  if (errCode === 21 || isProfileLocked(stderr)) {
+    return { error: 'chrome_busy', message: 'Chrome 로그인 창을 닫은 뒤 다시 시도해 주세요' };
+  }
+  // 강제 종료되고 아무것도 못 받음 — 대개 로그인 창이 아직 열려 있거나 페이지가 멈춘 경우
+  if (killed && !out) {
+    return { error: 'chrome_timeout',
+             message: '조회 시간이 초과되었습니다 — 로그인 창이 아직 열려 있지 않은지 확인해 주세요' };
+  }
+  // 비정상 종료 + 빈 출력 — 잠금 메시지를 못 알아봤을 가능성이 크다
+  if (errCode && errCode !== 0 && !out) {
+    return { error: 'chrome_failed',
+             message: (stderr || '').trim().slice(0, 200) || `Chrome 이 비정상 종료했습니다 (code ${errCode})` };
+  }
+  if (out.length < 200) {
+    return { error: 'chrome_empty', message: '빈 페이지가 반환되었습니다' };
+  }
+  return { html: out };
 }
 
 // 로그인 창을 띄운다. 사용자가 창을 닫는 시점을 알 수 있도록 프로세스를 돌려준다.
@@ -90,35 +130,30 @@ function openLogin(chromePath, profile, url) {
   return child;
 }
 
-// 렌더된 DOM 을 문자열로 가져온다.
+// 렌더된 DOM 을 문자열로 가져온다. 실패해도 진단할 수 있도록 실행 정보
+// (exitCode·stderr·args)를 결과에 함께 담아 돌려준다.
 function fetchHtml(chromePath, profile, url, opts = {}) {
   const budget  = opts.budgetMs || 20000;
   const timeout = opts.timeoutMs || budget + 20000;
+  const args    = fetchArgs(profile, url, budget, opts.extraArgs || []);
   return new Promise((resolve) => {
     fs.mkdirSync(profile, { recursive: true });
-    execFile(chromePath, fetchArgs(profile, url, budget, opts.extraArgs || []), {
+    execFile(chromePath, args, {
       timeout, maxBuffer: 64 * 1024 * 1024, windowsHide: true,
     }, (err, stdout, stderr) => {
-      if (isProfileLocked(stderr || '')) {
-        resolve({ error: 'chrome_busy',
-                  message: 'Chrome 로그인 창을 닫은 뒤 다시 시도해 주세요' });
-        return;
-      }
-      if (err && !stdout) {
-        resolve({ error: 'chrome_failed', message: (stderr || err.message || '').trim().slice(0, 200) });
-        return;
-      }
-      if (!stdout || stdout.length < 200) {
-        resolve({ error: 'chrome_empty', message: '빈 페이지가 반환되었습니다' });
-        return;
-      }
-      resolve({ html: stdout });
+      const exitCode = err ? (typeof err.code !== 'undefined' ? err.code : null) : 0;
+      const result = classifyFetch({ errCode: exitCode, killed: !!(err && err.killed), stdout, stderr });
+      // 진단 메타 — "command failed / 읽기 실패" 의 실제 원인을 파일로 남길 수 있게 한다
+      result.exitCode = exitCode;
+      result.stderr   = (stderr || '').trim().slice(0, 4000);
+      result.args     = args;
+      resolve(result);
     });
   });
 }
 
 module.exports = {
   chromeCandidates, findChrome, profileDir,
-  loginArgs, fetchArgs, isProfileLocked,
+  loginArgs, fetchArgs, isProfileLocked, classifyFetch,
   openLogin, fetchHtml,
 };
