@@ -472,7 +472,9 @@ function renderUnified(data) {
       body = `<div class="pmetrics">${p.metrics.slice(0, 2).map(metricHtml).join('')}</div>${part}`;
     } else if (p.state === 'busy') {
       // 전용 Chrome 로그인 창이 열려 있는 동안. 창을 닫으면 자동으로 읽는다.
-      body = `<div class="pstate" title="${esc(p.message)}">
+      const busyTip = `${p.message}\n\n창을 닫았는데도 이 상태가 계속되면 Chrome 이 백그라운드에 ` +
+        `남아 있을 수 있습니다 — 작업 관리자에서 Chrome 을 모두 종료한 뒤 ↻ 를 눌러 주세요.`;
+      body = `<div class="pstate" title="${esc(busyTip)}">
         <span style="color:#6a8a6a;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">로그인 후 창 닫기</span></div>`;
     } else {
       // auth 가 아닌 error 도 대부분 로그인이 안 된 상태다. 로그아웃 상태의 SPA는
@@ -484,7 +486,8 @@ function renderUnified(data) {
                      '로그인은 되어 있는데 화면에서 숫자를 찾지 못한 상태입니다. ' +
                      '서비스가 사용량 페이지를 개편하면 이렇게 됩니다.' +
                      (p.debugFile ? `\n받은 화면: ${p.debugFile}` : '')
-                   : (p.message || '불러오지 못했습니다');
+                   : (p.message || '불러오지 못했습니다') +
+                     (p.debugFile ? `\n\n진단 파일: ${p.debugFile}\n(이 파일을 열어 보면 원인을 알 수 있습니다)` : '');
       // 버튼이 밀려나지 않도록 짧게 줄인다. 전체 문구는 title 로 볼 수 있다.
       // 파싱 실패를 "사용량 없음" 으로 보여 주면 정말 안 쓴 것으로 오해하게 된다.
       const msg = p.state === 'auth' ? '연결 필요'
@@ -773,13 +776,16 @@ function toProviderState(res) {
     // 오류가 아니라 "창을 닫으면 읽습니다" 라는 안내 상태로 다룬다.
     if (res.error === 'chrome_busy') {
       return Object.assign(base, { state: 'busy',
-        message: res.message || 'Chrome 로그인 창을 닫으면 사용량을 읽습니다' });
+        message: res.message || 'Chrome 로그인 창을 닫으면 사용량을 읽습니다',
+        debugFile: res.debugFile || '' });
     }
     // chrome 조회인데 로그인이 안 된 경우(빈 페이지 등)는 로그인 안내로 모은다.
     const authish = res.error === 'auth' || res.error === 'chrome_empty';
     return Object.assign(base, {
       state: authish ? 'auth' : 'error',
       message: res.message || res.error,
+      // 실패 원인을 추적할 수 있게 진단 파일 경로를 같이 넘긴다
+      debugFile: res.debugFile || '',
     });
   }
   const parsed = providers.parseHtml(res.id, res.html, DOMParser);
@@ -833,6 +839,57 @@ async function loadData(force = false) {
   else scheduleRetry();
 }
 
+// 전용 Chrome 로그인은 "언제 끝났는지" 를 프로세스 신호로 알기 어렵다(Windows 의
+// chrome.exe 런처는 로그인 전에 먼저 끝나 버린다). 그래서 로그인 창이 열린 뒤
+// "조회가 될 때까지" 폴링해 완료를 감지한다:
+//   - 로그인 창이 열려 있는 동안은 같은 프로필이 잠겨 조회가 busy → 계속 기다린다.
+//   - 사용자가 로그인을 마치고 창을 닫으면 잠금이 풀려 조회가 성공(ok)하거나,
+//     로그인이 저장되지 않았으면 auth 로 떨어진다 → 그때 감시를 끝낸다.
+const loginWatch = {};                       // id -> timer
+const LOGIN_WATCH_MS = 5 * 60 * 1000;        // 최대 5분 기다린다
+
+function stopLoginWatch(id) {
+  if (loginWatch[id]) { clearTimeout(loginWatch[id]); delete loginWatch[id]; }
+}
+
+// 캐시에서 제공자 하나만 교체하고 다시 그린다 (로그인 대기 중 부분 갱신용)
+function mergeOne(st) {
+  if (!cache) cache = { providers: [], fetched_at: Date.now() };
+  const i = (cache.providers || []).findIndex(p => p.id === st.id);
+  if (i >= 0) cache.providers[i] = st; else (cache.providers = cache.providers || []).push(st);
+  render(cache);
+}
+
+function startLoginWatch(id) {
+  stopLoginWatch(id);
+  const name = (providers.get(id) || {}).name || id;
+  const deadline = Date.now() + LOGIN_WATCH_MS;
+  const tick = async () => {
+    let st;
+    try { st = toProviderState(await ipcRenderer.invoke('fetch-provider', id)); }
+    catch (e) { loginWatch[id] = setTimeout(tick, 4000); return; }
+
+    // 로그인이 끝나 조회가 되거나(ok), 저장이 안 돼 로그인 필요(auth)로 확정됐거나,
+    // 제한 시간이 지나면 감시를 끝내고 결과를 그대로 보여 준다.
+    if (st.state === 'ok' || st.state === 'auth' || Date.now() > deadline) {
+      stopLoginWatch(id);
+      setFooter(st.state === 'ok'
+        ? `${name} 로그인 완료 — 사용량을 읽었습니다`
+        : st.state === 'auth'
+          ? `${name} 로그인이 아직 확인되지 않았습니다 — 창에서 로그인했는지 확인해 주세요`
+          : `${name} 로그인 대기 시간이 지났습니다 — ↻ 로 다시 시도할 수 있습니다`);
+      loadData(true);                        // 전체 동기화 + 타이머 재개
+      return;
+    }
+    // 아직 로그인 진행 중 — "로그인 후 창 닫기" 로 보여 주고 계속 기다린다
+    mergeOne(Object.assign({}, st, { state: 'busy',
+      message: `${name} Chrome 창에서 로그인한 뒤 그 창을 닫으면 자동으로 반영됩니다` }));
+    loginWatch[id] = setTimeout(tick, 4000);
+  };
+  // 창이 뜨고 사용자가 로그인할 시간을 준 뒤 시작
+  loginWatch[id] = setTimeout(tick, 5000);
+}
+
 // 로그인 (기본 경로 — 확장 프로그램이 필요 없다).
 // Chrome 이 있으면 진짜 Chrome 창을 띄운다(Google 차단 우회). 로그인한 뒤
 // 그 창을 닫으면 위젯이 그 프로필로 사용량을 읽는다. Chrome 이 없으면 위젯
@@ -842,9 +899,12 @@ async function loginProvider(id) {
   const name = p ? p.name : id;
   const res = await ipcRenderer.invoke('open-login', id);
   if (!res || !res.ok) { setFooter(`로그인 창 열기 실패: ${(res && res.message) || ''}`); return; }
-  setFooter(res.backend === 'chrome'
-    ? `${name} Chrome 창을 열었습니다 — 로그인한 뒤 그 창을 닫으면 반영됩니다`
-    : `${name} 로그인 창을 열었습니다 — 로그인하면 자동으로 반영됩니다`);
+  if (res.backend === 'chrome') {
+    setFooter(`${name} Chrome 창에서 로그인한 뒤 그 창을 닫으면 자동으로 반영됩니다`);
+    startLoginWatch(id);                     // 완료될 때까지 폴링으로 감시
+  } else {
+    setFooter(`${name} 로그인 창을 열었습니다 — 로그인하면 자동으로 반영됩니다`);
+  }
 }
 
 // 계정 전환: 위젯에 저장된 그 서비스 로그인을 지우고 다시 로그인 창을 연다.
@@ -854,11 +914,13 @@ async function switchAccount(id) {
   const name = p ? p.name : id;
   if (!confirm(`${name} 로그인을 지우고 다른 계정으로 로그인할까요?\n\n다른 서비스의 로그인은 그대로 유지됩니다.`)) return;
   const res = await ipcRenderer.invoke('switch-account', id);
-  if (res && res.ok) setFooter(`${name} 로그인을 지웠습니다 — 열린 창에서 다른 계정으로 로그인하세요`);
-  else setFooter(`계정 전환 실패: ${(res && res.message) || ''}`);
+  if (!res || !res.ok) { setFooter(`계정 전환 실패: ${(res && res.message) || ''}`); return; }
+  setFooter(`${name} 로그인을 지웠습니다 — 열린 창에서 다른 계정으로 로그인하세요`);
+  if (res.backend === 'chrome') startLoginWatch(id);
 }
 
-// 로그인 창이 결과를 알려 오면 바로 갱신한다 (창을 닫지 않아도 반영된다)
+// Electron 내장 로그인 창(Chrome 미설치 폴백)이 결과를 알려 오면 바로 갱신한다.
+// 전용 Chrome 경로는 startLoginWatch 가 감지하므로 여기로 오지 않는다.
 ipcRenderer.on('login-done', (e, id, info) => {
   const p = providers.get(id);
   const name = p ? p.name : id;

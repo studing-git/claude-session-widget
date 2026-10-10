@@ -322,6 +322,28 @@ function saveDebugHtml(id, html) {
   } catch (e) { return ''; }
 }
 
+// Chrome 조회가 HTML 을 못 받고 실패했을 때, 실제 원인(종료 코드·stderr·실행 인자)을
+// 파일로 남긴다. "command failed / 읽기 실패" 가 떴을 때 사용자가 이 파일만 보내 주면
+// 잠금인지, 실행 실패인지, 시간 초과인지 바로 알 수 있다. (민감정보는 담기지 않는다 —
+// 쿠키 값은 stderr/인자에 없다.)
+function saveChromeError(id, res) {
+  try {
+    const dir = path.join(userDataDir(), 'debug');
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, `${id}-chrome.txt`);
+    fs.writeFileSync(file, [
+      `[${new Date().toISOString()}] ${id}`,
+      `error    : ${res.error || ''}`,
+      `message  : ${res.message || ''}`,
+      `exitCode : ${res.exitCode}`,
+      `args     : ${(res.args || []).join(' ')}`,
+      '--- stderr ---',
+      res.stderr || '(없음)',
+    ].join('\n'));
+    return file;
+  } catch (e) { return ''; }
+}
+
 // ── 구독 플랜 ──
 // 플랜은 사용량과 다른 화면에 있고(ChatGPT 는 설정의 결제 탭) 거의 바뀌지 않는다.
 // 조회가 비싸므로 캐시해 두고 오래됐을 때만 다시 읽는다. 값은 설정 파일에 남겨
@@ -413,6 +435,7 @@ async function fetchOne(provider) {
   const useChrome = backendOf(provider.id) === 'chrome';
   const res = useChrome ? await fetchViaChrome(provider) : await fetchProviderHtml(provider);
   if (res.html) res.debugFile = saveDebugHtml(provider.id, res.html);
+  else if (useChrome && res.error) res.debugFile = saveChromeError(provider.id, res);
   lastFetch[provider.id] = { finalUrl: res.finalUrl || '', debugFile: res.debugFile || '' };
   // 지표를 못 찾았을 때 원인이 미로그인인지 구분할 수 있게 인증 여부를 함께 보낸다.
   // Chrome 프로필의 쿠키는 Electron 세션에 없으므로 그쪽은 인증 판정을 건너뛴다.
@@ -527,20 +550,20 @@ function openLoginWindow(provider) {
 
 // 위젯 안에서 로그인한다 (확장 없이 쓰는 기본 경로)
 // 진짜 Chrome 창을 띄워 로그인하고, 그 제공자를 Chrome 조회로 전환한다.
-// 창이 닫히면(=로그인 마치고 사용자가 닫으면) 프로필 잠금이 풀리므로
-// 렌더러에 알려 곧바로 다시 조회하게 한다. Chrome 이 없으면 Electron 창으로 폴백.
+//
+// 예전에는 spawn 한 프로세스의 'exit' 를 로그인 완료 신호로 삼았는데, Windows 에서는
+// 기존 Chrome 인스턴스가 떠 있으면 실행한 chrome.exe 런처가 (실제 브라우저 창을
+// 띄운 뒤) 로그인 전에 먼저 끝나 버린다. 그러면 위젯이 "로그인 끝" 으로 오판해
+// 로그인 창이 아직 열려 있는데 조회를 시도하고, 같은 프로필이 잠겨 있어 실패했다.
+// 그래서 'exit' 에 기대지 않는다. 완료 감지는 렌더러가 "조회가 될 때까지" 폴링한다
+// (startLoginWatch) — 로그인 창이 열려 있는 동안엔 프로필 잠금(busy)이라 계속 기다리고,
+// 사용자가 창을 닫아 잠금이 풀리면 그때 조회가 성공한다.
 function openChromeLogin(provider) {
   const exe = chromePath();
   const profile = chrome.profileDir(userDataDir(), provider.id);
   const child = chrome.openLogin(exe, profile, provider.loginUrl);
   settings.setBackend(userDataDir(), provider.id, 'chrome');
-  const notify = () => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('login-done', provider.id, { authed: null });
-    }
-  };
-  // 창을 닫으면 조회가 가능해진다. 바로 갱신하도록 알린다.
-  child.on('exit', notify);
+  child.on('error', (err) => console.error(`[login] ${provider.id}: Chrome 실행 실패 — ${err.message}`));
   return child;
 }
 
@@ -567,12 +590,12 @@ ipcMain.handle('switch-account', async (e, id) => {
     if (backendOf(provider.id) === 'chrome') {
       removeChromeProfile(provider.id);
       openChromeLogin(provider);
-    } else {
-      const res = await cookieTools.removeFor(sessionFor(), provider.cookieDomains);
-      console.log(`[switch] ${provider.id}: 쿠키 ${res.removed}/${res.found}개 삭제`);
-      openLoginWindow(provider);
+      return { ok: true, backend: 'chrome' };
     }
-    return { ok: true };
+    const res = await cookieTools.removeFor(sessionFor(), provider.cookieDomains);
+    console.log(`[switch] ${provider.id}: 쿠키 ${res.removed}/${res.found}개 삭제`);
+    openLoginWindow(provider);
+    return { ok: true, backend: 'electron' };
   } catch (err) {
     return { ok: false, message: err.message };
   }
