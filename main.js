@@ -548,22 +548,80 @@ function openLoginWindow(provider) {
   return w;
 }
 
+// URL 이 그 제공자의 (로그인이 아닌) 일반 페이지인지 — 호스트가 그 서비스 도메인이고
+// 로그인/인증 경로가 아니면 로그인된 것으로 본다.
+function isProviderPage(provider, url) {
+  try {
+    if (looksLikeLogin(url)) return false;
+    return cookieTools.matchesDomains(new URL(url).hostname, provider.cookieDomains);
+  } catch (e) { return false; }
+}
+
+// 로그인 창을 감시해 "로그인됐는지"를 판단하고, 되면 창을 자동으로 닫는다.
+//
+// 전용 프로필의 디버깅 포트로 열린 탭 URL 만 들여다본다. 헤드리스 조회를 반복
+// 띄우지 않으므로 작업 관리자에 chrome.exe 가 깜빡이지 않는다. 탭이 로그인 페이지를
+// 떠나 그 서비스의 일반 페이지로 안착하면 로그인 완료로 보고, Browser.close 로
+// 창을 닫아(프로필 잠금 해제) 렌더러에 알린다 — 사용자가 창을 직접 닫을 필요가 없다.
+// 사용자가 먼저 창을 닫으면 포트가 사라지므로 그걸로도 완료를 안다.
+async function watchChromeLogin(provider) {
+  const profile = chrome.profileDir(userDataDir(), provider.id);
+  const notify = (extra) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('login-done', provider.id, Object.assign({ authed: null }, extra));
+    }
+  };
+
+  const dt = await chrome.waitDevToolsPort(profile, 15000);
+  if (!dt) {
+    // 디버깅 포트를 못 얻음(구형 Chrome 등). 자동 감지 불가 → 수동 종료로 폴백.
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('login-manual', provider.id);
+    }
+    return;
+  }
+
+  const deadline = Date.now() + 5 * 60 * 1000;   // 최대 5분 감시
+  const poll = async () => {
+    if (Date.now() > deadline) { notify({ timedOut: true }); return; }
+    const urls = await chrome.listPageUrls(dt.port);
+    if (urls === null) {                           // 포트가 죽음 = 사용자가 창을 직접 닫음
+      notify({ closedManually: true });
+      return;
+    }
+    if (urls.some(u => isProviderPage(provider, u))) {
+      // 리다이렉트가 이어질 수 있어 한 번 더 확인한 뒤 자동으로 닫는다
+      await new Promise(r => setTimeout(r, 1500));
+      const again = await chrome.listPageUrls(dt.port);
+      if (again && again.some(u => isProviderPage(provider, u))) {
+        await chrome.closeBrowser(dt.port, dt.wsPath);
+        for (let i = 0; i < 20; i++) {             // 완전히 종료(잠금 해제)될 때까지
+          if ((await chrome.listPageUrls(dt.port)) === null) break;
+          await new Promise(r => setTimeout(r, 300));
+        }
+        notify({ loggedIn: true });
+        return;
+      }
+    }
+    setTimeout(poll, 1500);
+  };
+  poll();
+}
+
 // 위젯 안에서 로그인한다 (확장 없이 쓰는 기본 경로)
 // 진짜 Chrome 창을 띄워 로그인하고, 그 제공자를 Chrome 조회로 전환한다.
 //
 // 예전에는 spawn 한 프로세스의 'exit' 를 로그인 완료 신호로 삼았는데, Windows 에서는
-// 기존 Chrome 인스턴스가 떠 있으면 실행한 chrome.exe 런처가 (실제 브라우저 창을
-// 띄운 뒤) 로그인 전에 먼저 끝나 버린다. 그러면 위젯이 "로그인 끝" 으로 오판해
-// 로그인 창이 아직 열려 있는데 조회를 시도하고, 같은 프로필이 잠겨 있어 실패했다.
-// 그래서 'exit' 에 기대지 않는다. 완료 감지는 렌더러가 "조회가 될 때까지" 폴링한다
-// (startLoginWatch) — 로그인 창이 열려 있는 동안엔 프로필 잠금(busy)이라 계속 기다리고,
-// 사용자가 창을 닫아 잠금이 풀리면 그때 조회가 성공한다.
+// 기존 Chrome 인스턴스가 떠 있으면 실행한 chrome.exe 런처가 로그인 전에 먼저 끝나
+// 버려 오판했다. 이제 'exit' 에 기대지 않고, 디버깅 포트로 로그인 창을 직접 감시해
+// (watchChromeLogin) 로그인되면 창을 자동으로 닫고 알린다.
 function openChromeLogin(provider) {
   const exe = chromePath();
   const profile = chrome.profileDir(userDataDir(), provider.id);
   const child = chrome.openLogin(exe, profile, provider.loginUrl);
   settings.setBackend(userDataDir(), provider.id, 'chrome');
   child.on('error', (err) => console.error(`[login] ${provider.id}: Chrome 실행 실패 — ${err.message}`));
+  watchChromeLogin(provider).catch(e => console.error(`[login] ${provider.id}: 감시 오류 — ${e.message}`));
   return child;
 }
 

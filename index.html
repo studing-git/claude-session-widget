@@ -839,72 +839,18 @@ async function loadData(force = false) {
   else scheduleRetry();
 }
 
-// 전용 Chrome 로그인은 "언제 끝났는지" 를 프로세스 신호로 알기 어렵다(Windows 의
-// chrome.exe 런처는 로그인 전에 먼저 끝나 버린다). 그래서 로그인 창이 열린 뒤
-// "조회가 될 때까지" 폴링해 완료를 감지한다:
-//   - 로그인 창이 열려 있는 동안은 같은 프로필이 잠겨 조회가 busy → 계속 기다린다.
-//   - 사용자가 로그인을 마치고 창을 닫으면 잠금이 풀려 조회가 성공(ok)하거나,
-//     로그인이 저장되지 않았으면 auth 로 떨어진다 → 그때 감시를 끝낸다.
-const loginWatch = {};                       // id -> timer
-const LOGIN_WATCH_MS = 5 * 60 * 1000;        // 최대 5분 기다린다
-
-function stopLoginWatch(id) {
-  if (loginWatch[id]) { clearTimeout(loginWatch[id]); delete loginWatch[id]; }
-}
-
-// 캐시에서 제공자 하나만 교체하고 다시 그린다 (로그인 대기 중 부분 갱신용)
-function mergeOne(st) {
-  if (!cache) cache = { providers: [], fetched_at: Date.now() };
-  const i = (cache.providers || []).findIndex(p => p.id === st.id);
-  if (i >= 0) cache.providers[i] = st; else (cache.providers = cache.providers || []).push(st);
-  render(cache);
-}
-
-function startLoginWatch(id) {
-  stopLoginWatch(id);
-  const name = (providers.get(id) || {}).name || id;
-  const deadline = Date.now() + LOGIN_WATCH_MS;
-  const tick = async () => {
-    let st;
-    try { st = toProviderState(await ipcRenderer.invoke('fetch-provider', id)); }
-    catch (e) { loginWatch[id] = setTimeout(tick, 4000); return; }
-
-    // 로그인이 끝나 조회가 되거나(ok), 저장이 안 돼 로그인 필요(auth)로 확정됐거나,
-    // 제한 시간이 지나면 감시를 끝내고 결과를 그대로 보여 준다.
-    if (st.state === 'ok' || st.state === 'auth' || Date.now() > deadline) {
-      stopLoginWatch(id);
-      setFooter(st.state === 'ok'
-        ? `${name} 로그인 완료 — 사용량을 읽었습니다`
-        : st.state === 'auth'
-          ? `${name} 로그인이 아직 확인되지 않았습니다 — 창에서 로그인했는지 확인해 주세요`
-          : `${name} 로그인 대기 시간이 지났습니다 — ↻ 로 다시 시도할 수 있습니다`);
-      loadData(true);                        // 전체 동기화 + 타이머 재개
-      return;
-    }
-    // 아직 로그인 진행 중 — "로그인 후 창 닫기" 로 보여 주고 계속 기다린다
-    mergeOne(Object.assign({}, st, { state: 'busy',
-      message: `${name} Chrome 창에서 로그인한 뒤 그 창을 닫으면 자동으로 반영됩니다` }));
-    loginWatch[id] = setTimeout(tick, 4000);
-  };
-  // 창이 뜨고 사용자가 로그인할 시간을 준 뒤 시작
-  loginWatch[id] = setTimeout(tick, 5000);
-}
-
 // 로그인 (기본 경로 — 확장 프로그램이 필요 없다).
-// Chrome 이 있으면 진짜 Chrome 창을 띄운다(Google 차단 우회). 로그인한 뒤
-// 그 창을 닫으면 위젯이 그 프로필로 사용량을 읽는다. Chrome 이 없으면 위젯
-// 내장 창으로 로그인하고, 그 경우 쿠키가 위젯 세션에 바로 저장된다.
+// Chrome 이 있으면 진짜 Chrome 창을 띄운다(Google 차단 우회). 로그인하면 위젯이
+// 그 창을 자동으로 닫고(main 의 watchChromeLogin 이 디버깅 포트로 감지) 사용량을
+// 읽습니다. Chrome 이 없으면 위젯 내장 창으로 로그인합니다.
 async function loginProvider(id) {
   const p = providers.get(id);
   const name = p ? p.name : id;
   const res = await ipcRenderer.invoke('open-login', id);
   if (!res || !res.ok) { setFooter(`로그인 창 열기 실패: ${(res && res.message) || ''}`); return; }
-  if (res.backend === 'chrome') {
-    setFooter(`${name} Chrome 창에서 로그인한 뒤 그 창을 닫으면 자동으로 반영됩니다`);
-    startLoginWatch(id);                     // 완료될 때까지 폴링으로 감시
-  } else {
-    setFooter(`${name} 로그인 창을 열었습니다 — 로그인하면 자동으로 반영됩니다`);
-  }
+  setFooter(res.backend === 'chrome'
+    ? `${name} Chrome 창에서 로그인하세요 — 끝나면 창이 자동으로 닫히고 반영됩니다`
+    : `${name} 로그인 창을 열었습니다 — 로그인하면 자동으로 반영됩니다`);
 }
 
 // 계정 전환: 위젯에 저장된 그 서비스 로그인을 지우고 다시 로그인 창을 연다.
@@ -915,19 +861,29 @@ async function switchAccount(id) {
   if (!confirm(`${name} 로그인을 지우고 다른 계정으로 로그인할까요?\n\n다른 서비스의 로그인은 그대로 유지됩니다.`)) return;
   const res = await ipcRenderer.invoke('switch-account', id);
   if (!res || !res.ok) { setFooter(`계정 전환 실패: ${(res && res.message) || ''}`); return; }
-  setFooter(`${name} 로그인을 지웠습니다 — 열린 창에서 다른 계정으로 로그인하세요`);
-  if (res.backend === 'chrome') startLoginWatch(id);
+  setFooter(res.backend === 'chrome'
+    ? `${name} 로그인을 지웠습니다 — 열린 Chrome 창에서 다른 계정으로 로그인하면 자동 반영됩니다`
+    : `${name} 로그인을 지웠습니다 — 열린 창에서 다른 계정으로 로그인하세요`);
 }
 
-// Electron 내장 로그인 창(Chrome 미설치 폴백)이 결과를 알려 오면 바로 갱신한다.
-// 전용 Chrome 경로는 startLoginWatch 가 감지하므로 여기로 오지 않는다.
-ipcRenderer.on('login-done', (e, id, info) => {
+// 로그인 완료 신호. 전용 Chrome 은 main 이 로그인 창을 감지해 자동으로 닫은 뒤
+// 보내고(loggedIn), 사용자가 창을 직접 닫았거나(closedManually) 시간이 지난
+// 경우(timedOut)도 알린다. Electron 내장 창(폴백)은 authed 로 결과를 준다.
+ipcRenderer.on('login-done', (e, id, info = {}) => {
   const p = providers.get(id);
   const name = p ? p.name : id;
-  if (info && info.authed === false) {
-    setFooter(`${name} 로그인이 저장되지 않았습니다 — 위젯 로그인 창에서 로그인해 주세요`);
-  }
+  if (info.loggedIn)         setFooter(`${name} 로그인 완료 — 사용량을 읽는 중입니다`);
+  else if (info.timedOut)    setFooter(`${name} 로그인 대기 시간이 지났습니다 — 로그인했다면 ↻ 를 눌러 주세요`);
+  else if (info.authed === false)
+    setFooter(`${name} 로그인이 저장되지 않았습니다 — 다시 로그인해 주세요`);
   loadData(true);
+});
+
+// 디버깅 포트를 못 얻어 자동 감지가 안 되는 경우(구형 Chrome 등) — 수동 종료 안내.
+ipcRenderer.on('login-manual', (e, id) => {
+  const p = providers.get(id);
+  const name = p ? p.name : id;
+  setFooter(`${name} 로그인 후 그 Chrome 창을 닫고 ↻ 를 눌러 주세요`);
 });
 
 setMode('uni');
