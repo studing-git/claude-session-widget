@@ -840,16 +840,16 @@ async function loadData(force = false) {
 }
 
 // 로그인 (기본 경로 — 확장 프로그램이 필요 없다).
-// Chrome 이 있으면 진짜 Chrome 창을 띄운다(Google 차단 우회). 로그인하면 위젯이
-// 그 창을 자동으로 닫고(main 의 watchChromeLogin 이 디버깅 포트로 감지) 사용량을
-// 읽습니다. Chrome 이 없으면 위젯 내장 창으로 로그인합니다.
+// Chrome 이 있으면 진짜 Chrome 창을 띄운다(Google 차단 우회). 거기서 로그인한 뒤
+// 그 창을 닫으면 위젯이 같은 프로필로 사용량을 읽습니다. Chrome 이 없으면 위젯
+// 내장 창으로 로그인합니다.
 async function loginProvider(id) {
   const p = providers.get(id);
   const name = p ? p.name : id;
   const res = await ipcRenderer.invoke('open-login', id);
   if (!res || !res.ok) { setFooter(`로그인 창 열기 실패: ${(res && res.message) || ''}`); return; }
   setFooter(res.backend === 'chrome'
-    ? `${name} Chrome 창에서 로그인하세요 — 끝나면 창이 자동으로 닫히고 반영됩니다`
+    ? `${name} Chrome 창에서 로그인한 뒤 그 창을 닫으면 반영됩니다 (안 되면 ↻)`
     : `${name} 로그인 창을 열었습니다 — 로그인하면 자동으로 반영됩니다`);
 }
 
@@ -862,28 +862,20 @@ async function switchAccount(id) {
   const res = await ipcRenderer.invoke('switch-account', id);
   if (!res || !res.ok) { setFooter(`계정 전환 실패: ${(res && res.message) || ''}`); return; }
   setFooter(res.backend === 'chrome'
-    ? `${name} 로그인을 지웠습니다 — 열린 Chrome 창에서 다른 계정으로 로그인하면 자동 반영됩니다`
+    ? `${name} 로그인을 지웠습니다 — 열린 Chrome 창에서 다른 계정으로 로그인한 뒤 창을 닫으세요`
     : `${name} 로그인을 지웠습니다 — 열린 창에서 다른 계정으로 로그인하세요`);
 }
 
-// 로그인 완료 신호. 전용 Chrome 은 main 이 로그인 창을 감지해 자동으로 닫은 뒤
-// 보내고(loggedIn), 사용자가 창을 직접 닫았거나(closedManually) 시간이 지난
-// 경우(timedOut)도 알린다. Electron 내장 창(폴백)은 authed 로 결과를 준다.
+// 로그인 창이 닫히면(전용 Chrome 은 프로세스 'exit', 내장 창은 자체 신호) 바로 갱신한다.
+// 전용 Chrome 에서 창이 아직 열려 있는 채로 신호가 와도, 조회가 'busy'(로그인 후 창
+// 닫기)로 표시될 뿐 해롭지 않다 — 사용자가 창을 닫고 ↻ 를 누르면 읽힌다.
 ipcRenderer.on('login-done', (e, id, info = {}) => {
   const p = providers.get(id);
   const name = p ? p.name : id;
-  if (info.loggedIn)         setFooter(`${name} 로그인 완료 — 사용량을 읽는 중입니다`);
-  else if (info.timedOut)    setFooter(`${name} 로그인 대기 시간이 지났습니다 — 로그인했다면 ↻ 를 눌러 주세요`);
-  else if (info.authed === false)
+  if (info.authed === false) {
     setFooter(`${name} 로그인이 저장되지 않았습니다 — 다시 로그인해 주세요`);
+  }
   loadData(true);
-});
-
-// 디버깅 포트를 못 얻어 자동 감지가 안 되는 경우(구형 Chrome 등) — 수동 종료 안내.
-ipcRenderer.on('login-manual', (e, id) => {
-  const p = providers.get(id);
-  const name = p ? p.name : id;
-  setFooter(`${name} 로그인 후 그 Chrome 창을 닫고 ↻ 를 눌러 주세요`);
 });
 
 setMode('uni');
