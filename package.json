@@ -1,6 +1,6 @@
 {
   "name": "claude-usage-widget",
-  "version": "2.9.3",
+  "version": "2.9.4",
   "description": "Claude, ChatGPT usage desktop widget",
   "main": "main.js",
   "scripts": {

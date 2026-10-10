@@ -1,6 +1,7 @@
 process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true';
 
 const { app, BrowserWindow, BrowserView, ipcMain, session, screen } = require('electron');
+const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const updater   = require('./updater');
@@ -551,27 +552,71 @@ function openLoginWindow(provider) {
 // 위젯 안에서 로그인한다 (확장 없이 쓰는 기본 경로)
 // 진짜 Chrome 창을 띄워 로그인하고, 그 제공자를 Chrome 조회로 전환한다.
 //
-// 로그인 완료는 "사용자가 창을 닫으면" 그 프로세스의 'exit' 로 알아, 바로 조회하게
-// 렌더러에 알린다. Windows 에서 런처가 먼저 끝나 'exit' 가 일찍 와도 해롭지 않다 —
-// 그때 조회하면 로그인 창이 아직 프로필을 잡고 있어 'busy'(로그인 후 창 닫기)로
-// 표시될 뿐이고, 사용자가 실제로 창을 닫은 뒤 ↻ 를 누르면 읽힌다.
+// 로그인 창은 플래그 없는 평범한 Chrome 으로 띄운다 — 한때 디버깅 포트로 로그인
+// 완료를 자동 감지하려 했으나, 그 포트를 Cloudflare 가 봇으로 보고 "사람인지 확인"을
+// 무한 루프로 만들어 로그인 자체가 막혔다.
 //
-// (한때 디버깅 포트로 로그인 창을 직접 감시해 자동으로 닫았으나, 그 포트를 Cloudflare
-//  가 봇으로 보고 "사람인지 확인" 을 무한 루프로 만들어 로그인 자체가 막혔다. 그래서
-//  로그인 창은 플래그 없는 평범한 Chrome 으로 띄우고, 창 닫기는 사용자가 한다.)
+// 로그인을 마치면 같은 프로필로 헤드리스 조회를 해야 하는데, 로그인 창이 그 프로필을
+// 잡고 있으면(창을 닫아도 Windows 에선 백그라운드에 Chrome 이 남는 경우가 있다) 조회가
+// 잠금(exit 21)으로 실패한다. 그래서 사용자가 위젯의 "로그인 완료"를 누르면(finish-login)
+// 그 전용 프로필의 Chrome 을 확실히 종료해 잠금을 푼다. 사용자가 창을 직접 닫아
+// 프로세스가 끝나면 'exit' 로도 안다.
+const loginChildren = {};   // id -> 로그인용으로 띄운 child 프로세스
+
 function openChromeLogin(provider) {
   const exe = chromePath();
   const profile = chrome.profileDir(userDataDir(), provider.id);
   const child = chrome.openLogin(exe, profile, provider.loginUrl);
+  loginChildren[provider.id] = child;
   settings.setBackend(userDataDir(), provider.id, 'chrome');
   child.on('error', (err) => console.error(`[login] ${provider.id}: Chrome 실행 실패 — ${err.message}`));
   child.on('exit', () => {
+    if (loginChildren[provider.id] === child) delete loginChildren[provider.id];
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('login-done', provider.id, { authed: null });
     }
   });
   return child;
 }
+
+// 그 제공자의 전용 프로필을 쓰는 로그인 Chrome 을 종료한다(프로필 잠금 해제).
+// 위젯 전용 프로필만 겨냥하므로 사용자의 평소 Chrome 은 건드리지 않는다.
+function killLoginChrome(id) {
+  const child = loginChildren[id];
+  if (process.platform === 'win32') {
+    try {
+      if (child && child.pid) {
+        spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+      }
+    } catch (e) {}
+    // 창을 닫아도 백그라운드에 남는 Chrome 까지 — 이 전용 프로필을 쓰는 것만 골라 종료.
+    // (명령줄에 chrome-profiles\<id> 가 들어간 프로세스만 — 평소 프로필은 매칭되지 않는다)
+    try {
+      const needle = ('chrome-profiles\\' + id).replace(/'/g, "''");
+      const ps = `Get-CimInstance Win32_Process -Filter "Name='chrome.exe' or Name='msedge.exe'" | ` +
+                 `Where-Object { $_.CommandLine -like '*${needle}*' } | ` +
+                 `ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`;
+      spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps], { stdio: 'ignore', windowsHide: true });
+    } catch (e) {}
+  } else if (child) {
+    try { child.kill('SIGTERM'); } catch (e) {}
+    setTimeout(() => { try { child.kill('SIGKILL'); } catch (e) {} }, 1500);
+  }
+  delete loginChildren[id];
+}
+
+// "로그인 완료" — 로그인 창(Chrome)을 닫아 프로필 잠금을 풀고, 잠깐 기다렸다가
+// 렌더러가 다시 조회하게 한다.
+ipcMain.handle('finish-login', async (e, id) => {
+  const provider = providers.get(id);
+  if (!provider) return { ok: false, message: '알 수 없는 제공자' };
+  killLoginChrome(id);
+  await new Promise(r => setTimeout(r, 1500));   // 프로세스 종료 + 잠금 해제 여유
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('login-done', provider.id, { authed: null });
+  }
+  return { ok: true };
+});
 
 ipcMain.handle('open-login', (e, id) => {
   const provider = providers.get(id);

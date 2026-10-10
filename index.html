@@ -471,11 +471,14 @@ function renderUnified(data) {
         ? `<span class="psrc pwarn" title="${esc(p.message)}\n페이지 구조가 일부 바뀐 것 같습니다">일부</span>` : '';
       body = `<div class="pmetrics">${p.metrics.slice(0, 2).map(metricHtml).join('')}</div>${part}`;
     } else if (p.state === 'busy') {
-      // 전용 Chrome 로그인 창이 열려 있는 동안. 창을 닫으면 자동으로 읽는다.
-      const busyTip = `${p.message}\n\n창을 닫았는데도 이 상태가 계속되면 Chrome 이 백그라운드에 ` +
-        `남아 있을 수 있습니다 — 작업 관리자에서 Chrome 을 모두 종료한 뒤 ↻ 를 눌러 주세요.`;
+      // 전용 Chrome 로그인 창이 그 프로필을 잡고 있어 조회를 못 하는 상태.
+      // 로그인을 마쳤으면 이 버튼으로 로그인 창을 닫고(프로필 잠금 해제) 읽는다.
+      const busyTip = `로그인을 마쳤으면 누르세요 — 로그인 Chrome 창을 닫고 사용량을 읽습니다.\n` +
+        `(그 Chrome 창을 직접 닫아도 됩니다. 창을 닫았는데도 계속 이 상태면 Chrome 이 ` +
+        `백그라운드에 남은 것이니 이 버튼을 누르면 확실히 종료합니다.)`;
       body = `<div class="pstate" title="${esc(busyTip)}">
-        <span style="color:#6a8a6a;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">로그인 후 창 닫기</span></div>`;
+        <span style="color:#6a8a6a;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">로그인 창 열림</span>
+        <button class="pbtn" data-finish="${esc(p.id)}" title="${esc(busyTip)}">로그인 완료</button></div>`;
     } else {
       // auth 가 아닌 error 도 대부분 로그인이 안 된 상태다. 로그아웃 상태의 SPA는
       // 로그인 URL로 리다이렉트하지 않고 빈 페이지만 그려 지표를 못 찾는 경우가 많다.
@@ -525,6 +528,8 @@ function renderUnified(data) {
     b.addEventListener('click', () => switchAccount(b.getAttribute('data-swap'))));
   document.querySelectorAll('#uniContent [data-login]').forEach(b =>
     b.addEventListener('click', () => loginProvider(b.getAttribute('data-login'))));
+  document.querySelectorAll('#uniContent [data-finish]').forEach(b =>
+    b.addEventListener('click', () => finishLogin(b.getAttribute('data-finish'))));
   resizeToContent();
 }
 
@@ -849,8 +854,15 @@ async function loginProvider(id) {
   const res = await ipcRenderer.invoke('open-login', id);
   if (!res || !res.ok) { setFooter(`로그인 창 열기 실패: ${(res && res.message) || ''}`); return; }
   setFooter(res.backend === 'chrome'
-    ? `${name} Chrome 창에서 로그인한 뒤 그 창을 닫으면 반영됩니다 (안 되면 ↻)`
+    ? `${name} Chrome 창에서 로그인한 뒤, 위젯의 '로그인 완료'를 누르면 반영됩니다`
     : `${name} 로그인 창을 열었습니다 — 로그인하면 자동으로 반영됩니다`);
+}
+
+// "로그인 완료" — 로그인 Chrome 창을 닫고(프로필 잠금 해제) 사용량을 읽는다.
+async function finishLogin(id) {
+  const name = (providers.get(id) || {}).name || id;
+  setFooter(`${name} 로그인 창을 닫고 사용량을 읽는 중…`);
+  await ipcRenderer.invoke('finish-login', id);   // main 이 끝나면 login-done → loadData
 }
 
 // 계정 전환: 위젯에 저장된 그 서비스 로그인을 지우고 다시 로그인 창을 연다.
